@@ -12,8 +12,13 @@ struct IceApp: App {
 
     init() {
         NSSplitViewItem.swizzle()
-        MigrationManager.migrateAll(appState: appState)
         appDelegate.assignAppState(appState)
+        // ponytail: migration touches UserDefaults + SettingsManager; defer past
+        // first paint so login-window boot isn't blocked on disk decode.
+        let state = appState
+        DispatchQueue.main.async {
+            MigrationManager.migrateAll(appState: state)
+        }
     }
 
     var body: some Scene {

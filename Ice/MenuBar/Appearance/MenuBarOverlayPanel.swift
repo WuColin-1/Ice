@@ -143,19 +143,26 @@ final class MenuBarOverlayPanel: NSPanel {
             let displayID = owningScreen.displayID
             updateTaskContext.setTask(for: .applicationMenuFrame, timeout: .seconds(10)) {
                 var hasDoneInitialUpdate = false
+                var consecutiveMisses = 0
                 while true {
                     try Task.checkCancellation()
                     guard
                         let latestFrame = appState.menuBarManager.getApplicationMenuFrame(for: displayID),
                         latestFrame != self.applicationMenuFrame
                     else {
+                        // ponytail: was 1ms spin (~1000 AX round-trips/s for up to 10s).
+                        // Back off exponentially while the menu bar isn't resolving so
+                        // boot/app-switch doesn't stall WindowServer IPC.
                         if hasDoneInitialUpdate {
                             try await Task.sleep(for: .seconds(1))
                         } else {
-                            try await Task.sleep(for: .milliseconds(1))
+                            consecutiveMisses += 1
+                            let backoffMs = Int64(min(50 * consecutiveMisses, 500))
+                            try await Task.sleep(for: .milliseconds(backoffMs))
                         }
                         continue
                     }
+                    consecutiveMisses = 0
                     self.insertUpdateFlag(.applicationMenuFrame)
                     hasDoneInitialUpdate = true
                 }
@@ -319,8 +326,12 @@ final class MenuBarOverlayPanel: NSPanel {
 
         updateFlags = [.applicationMenuFrame]
 
+        // ponytail: no animator() fade on show. Fading while the split shape is
+        // still unresolved (AX pending) flashes a half-tinted gray bar and costs
+        // a compositor animation at every space switch. Appear instantly; the
+        // shape resolves into place via needsDisplay.
         if !appState.menuBarManager.isMenuBarHiddenBySystem {
-            animator().alphaValue = 1
+            alphaValue = 1
         }
     }
 
@@ -343,7 +354,7 @@ private final class MenuBarOverlayPanelContentView: NSView {
     private var trailingWidthScanInFlight = Set<CGDirectDisplayID>()
 
     /// How long a cached trailing width is trusted before rescanning.
-    private static let trailingWidthTTL: TimeInterval = 2
+    private static let trailingWidthTTL: TimeInterval = 5
 
     /// Burst-rescan deadlines per display.
     ///
@@ -695,34 +706,20 @@ private final class MenuBarOverlayPanelContentView: NSView {
 
     /// Returns the last-known trailing status width for the display without
     /// blocking. Kicks off a background rescan when the cached value is stale;
-    /// the view redisplays when the rescan completes. While a toggle burst is
-    /// in flight the returned value eases toward the predicted end position,
-    /// so hide/show renders as one continuous glide starting with the icons,
-    /// not a jump ~1s after them.
+    /// the view redisplays when the rescan completes.
+    /// ponytail: no per-frame easing here — the old 0.22/frame glide re-armed
+    /// needsDisplay from inside draw() (~60fps redraw storm per toggle/scan).
+    /// Draws now snap to the cached/predicted target; the background rescan
+    /// corrects it once AX lands.
     private func cachedTrailingStatusWidth(for display: CGDirectDisplayID) -> CGFloat {
         refreshTrailingStatusWidth(for: display, force: false)
         let target = predictiveTarget[display] ?? trailingWidthCache[display]?.width ?? 0
-        guard target > 0 else {
-            displayedTrailingWidth[display] = 0
-            return 0
-        }
-        let current = displayedTrailingWidth[display] ?? target
-        guard abs(current - target) >= 0.5 else {
-            displayedTrailingWidth[display] = target
-            return target
-        }
-        // ~22% per frame converges in ~0.3s, matching the native icon slide.
-        let next = current + (target - current) * 0.22
-        displayedTrailingWidth[display] = next
-        DispatchQueue.main.async { [weak self] in
-            self?.needsDisplay = true
-        }
-        return next
+        displayedTrailingWidth[display] = target
+        return target
     }
 
-    /// A control item moved or toggled: redraw now, jump the pill toward the
-    /// remembered end position at once, and keep chaining scans for ~2s so the
-    /// rescan confirms (and corrects) the prediction mid-slide.
+    /// A control item moved or toggled: redraw now and keep chaining scans
+    /// briefly so the rescan confirms (and corrects) the prediction mid-slide.
     private func noteControlItemMoved() {
         needsDisplay = true
         guard let panel = overlayPanel, let appState = panel.appState else {
@@ -738,7 +735,7 @@ private final class MenuBarOverlayPanelContentView: NSView {
         } else if !concealing, let remembered = settledRevealedWidth[display], remembered > 0 {
             predictiveTarget[display] = remembered
         }
-        trailingBurstUntil[display] = Date().addingTimeInterval(2.0)
+        trailingBurstUntil[display] = Date().addingTimeInterval(1.2)
         refreshTrailingStatusWidth(for: display, force: true)
     }
 

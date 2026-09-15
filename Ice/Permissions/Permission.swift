@@ -65,9 +65,12 @@ class Permission: ObservableObject, Identifiable {
 
     /// Sets up the internal observers for the permission.
     private func configureCancellables() {
+        // ponytail: no Just(.now) — init already did one sync check(); an immediate
+        // second scan (full menu-bar CG/AX walk for Screen Recording) doubles boot
+        // cost, and stopAllChecks() in performSetup cancels this timer anyway when
+        // permissions are already granted.
         timerCancellable = Timer.publish(every: 1, on: .main, in: .default)
             .autoconnect()
-            .merge(with: Just(.now))
             .sink { [weak self] _ in
                 guard let self else {
                     return

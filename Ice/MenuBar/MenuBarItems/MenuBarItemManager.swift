@@ -182,9 +182,12 @@ final class MenuBarItemManager: ObservableObject {
     private func configureCancellables() {
         var c = Set<AnyCancellable>()
 
+        // ponytail: no Just(.now) — a full CGS+AX item walk the instant control
+        // items are created (while WindowServer is busiest at login) blocks first
+        // paint and usually gets cleared/re-scanned 5s later anyway. First prime
+        // is deferred 2s past boot; steady state stays on the 5s timer.
         Timer.publish(every: 5, on: .main, in: .default)
             .autoconnect()
-            .merge(with: Just(.now))
             .sink { [weak self] _ in
                 guard let self else {
                     return
@@ -194,6 +197,12 @@ final class MenuBarItemManager: ObservableObject {
                 }
             }
             .store(in: &c)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            Task { [weak self] in
+                await self?.cacheItemsIfNeeded()
+            }
+        }
 
         NSWorkspace.shared.publisher(for: \.runningApplications)
             .delay(for: 0.25, scheduler: DispatchQueue.main)

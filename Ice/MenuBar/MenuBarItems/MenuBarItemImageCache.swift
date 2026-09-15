@@ -41,8 +41,9 @@ final class MenuBarItemImageCache: ObservableObject {
 
         if let appState {
             Publishers.Merge3(
-                // Update every 3 seconds at minimum.
-                Timer.publish(every: 3, on: .main, in: .default).autoconnect().mapToVoid(),
+                // Update every 5 seconds at minimum (was 3s: each tick did a
+                // full menu-bar CG walk even when the Ice Bar was hidden).
+                Timer.publish(every: 5, on: .main, in: .default).autoconnect().mapToVoid(),
 
                 // Update when the active space or screen parameters change.
                 Publishers.Merge(
@@ -62,10 +63,10 @@ final class MenuBarItemImageCache: ObservableObject {
                 guard let self else {
                     return
                 }
+                // ponytail: updateCache() gates on Ice Bar/search/settings visibility
+                // first; only then does it pay for the ScreenCapture permission scan.
                 Task.detached {
-                    if ScreenCapture.cachedCheckPermissions() {
-                        await self.updateCache()
-                    }
+                    await self.updateCache()
                 }
             }
             .store(in: &c)
@@ -251,6 +252,11 @@ final class MenuBarItemImageCache: ObservableObject {
 
         guard await !appState.itemManager.itemHasRecentlyMoved else {
             logSkippingCache(reason: "an item was recently moved")
+            return
+        }
+
+        guard ScreenCapture.cachedCheckPermissions() else {
+            logSkippingCache(reason: "missing Screen Recording permission")
             return
         }
 
