@@ -120,6 +120,12 @@ struct AboutSettingsPane: View {
             "Automatically download updates",
             isOn: updatesManager.bindings.automaticallyDownloadsUpdates
         )
+        .disabled(!updatesManager.automaticallyChecksForUpdates)
+        .annotation {
+            if !updatesManager.automaticallyChecksForUpdates {
+                Text("Turn on automatic checks to enable automatic downloads")
+            }
+        }
     }
 
     @ViewBuilder

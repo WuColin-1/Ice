@@ -1,0 +1,53 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Derive version from tag
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag '$TAG' must look like vX.Y.Z (e.g. v0.11.13)"
+            exit 1
+          fi
+          # Sparkle requires the build number to keep increasing and it must
+          # stay above 1117 (the last build released upstream).
+          BUILD_NUMBER=$((1117 + GITHUB_RUN_NUMBER))
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $GITHUB_ENV
+          echo "Building version $VERSION ($BUILD_NUMBER)"
+      - name: Build app
+        run: |
+          xcodebuild -project Ice.xcodeproj -scheme Ice -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            clean build
+          BUILD_DIR=$(xcodebuild -project Ice.xcodeproj -scheme Ice -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            -showBuildSettings 2>/dev/null \
+            | sed -n 's/^ *BUILT_PRODUCTS_DIR *= *//p' | head -1)
+          echo "APP_PATH=$BUILD_DIR/Ice.app" >> $GITHUB_ENV
+          echo "BUILD_DIR=$BUILD_DIR" >> $GITHUB_ENV
+      - name: Zip and publish to GitHub Release
+        run: |
+          codesign --force --deep --sign - "$APP_PATH"
+          ditto -c -k --keepParent "$APP_PATH" Ice.zip
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: Ice.zip
+          generate_release_notes: true
+# After the Release finishes, run one command locally to update the appcast
+# for the cavaldos/ice-releases repo (with GitHub Pages enabled):
+#   generate_appcast -f <private-key.pem> --download-url-prefix https://github.com/cavaldos/ice-releases/releases/download/<tag>/ /path/to/folder/containing/Ice.zip
+# then push appcast.xml to the ice-releases repo. Installed apps will pick up
+# the update automatically via SUFeedURL https://cavaldos.github.io/ice-releases/appcast.xml
+# ponytail: ad-hoc signing is for internal testing only, public releases need Developer ID + notarization
