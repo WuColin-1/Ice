@@ -115,8 +115,6 @@ struct CustomColorPicker: NSViewRepresentable {
         switch nsView.controlSize {
         case .large:
             CGSize(width: 55, height: 30)
-        case .extraLarge:
-            CGSize(width: 66, height: 36)
         case .regular:
             CGSize(width: 44, height: 24)
         case .small:
@@ -124,7 +122,13 @@ struct CustomColorPicker: NSViewRepresentable {
         case .mini:
             CGSize(width: 29, height: 16)
         @unknown default:
-            nsView.intrinsicContentSize
+            // NSControlSizeExtraLarge == 4, introduced in the macOS 26 SDK.
+            // Compared by raw value so this still compiles on older SDKs.
+            if nsView.controlSize.rawValue == 4 {
+                CGSize(width: 66, height: 36)
+            } else {
+                nsView.intrinsicContentSize
+            }
         }
     }
 }
