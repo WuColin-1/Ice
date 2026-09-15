@@ -989,11 +989,11 @@ private final class MenuBarTintView: NSView {
     var fillRect = CGRect.zero
     var shapeKind = MenuBarShapeKind.none
     var tintKind = MenuBarTintKind.none
-    var tintColor: CGColor = NSColor.black.cgColor ?? CGColor(gray: 0, alpha: 1)
+    var tintColor: CGColor = NSColor.black.cgColor
     var tintGradient = CustomGradient.defaultMenuBarTint
     var tintOpacity = 1.0
     var hasBorder = false
-    var borderColor: CGColor = NSColor.black.cgColor ?? CGColor(gray: 0, alpha: 1)
+    var borderColor: CGColor = NSColor.black.cgColor
     var borderWidth = 1.0
 
     override func draw(_ dirtyRect: NSRect) {

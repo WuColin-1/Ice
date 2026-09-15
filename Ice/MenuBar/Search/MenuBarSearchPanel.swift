@@ -304,7 +304,7 @@ private struct MenuBarSearchContentView: View {
     private func performAction(for item: MenuBarItem) {
         closePanel()
         Task {
-            try await Task.sleep(for: .milliseconds(25))
+            try? await Task.sleep(for: .milliseconds(25))
             itemManager.tempShowItem(item, clickWhenFinished: true, mouseButton: .left)
         }
     }

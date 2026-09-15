@@ -127,7 +127,7 @@ final class MenuBarManager: ObservableObject {
                     !appState.eventManager.isMouseInsideMenuBar
                 {
                     Task {
-                        try await Task.sleep(for: .seconds(0.1))
+                        try? await Task.sleep(for: .seconds(0.1))
                         hiddenSection.hide()
                     }
                 }
