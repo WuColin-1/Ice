@@ -935,6 +935,8 @@ extension MenuBarItemManager {
                     Logger.itemManager.debug("Menu bar item frame for \(item.logString) has changed to \(NSStringFromRect(currentFrame))")
                     return
                 }
+                // ponytail: 1ms pause cuts WindowServer IPC from thousands to ~50 per move; +1ms detect delay is negligible vs 50ms timeout.
+                try await Task.sleep(for: .milliseconds(1))
             }
         }
         do {
