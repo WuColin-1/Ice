@@ -273,29 +273,43 @@ final class MenuBarManager: ObservableObject {
         }
     }
 
+    /// Returns the Accessibility menu bar element for the given display.
+    ///
+    /// On macOS 27 the exact top-left point can hit the WindowManager glass
+    /// container instead of the menu bar, so probe a few points inside the bar.
+    private func menuBarElement(for displayID: CGDirectDisplayID) -> UIElement? {
+        let displayBounds = CGDisplayBounds(displayID)
+        let candidates: [CGPoint] = [
+            CGPoint(x: displayBounds.origin.x + 2, y: displayBounds.origin.y + 2),
+            CGPoint(x: displayBounds.origin.x + 5, y: displayBounds.origin.y + 5),
+            CGPoint(x: displayBounds.origin.x + 1, y: displayBounds.origin.y + 1),
+            CGPoint(x: displayBounds.origin.x, y: displayBounds.origin.y),
+        ]
+        for point in candidates {
+            if
+                let element = try? systemWideElement.elementAtPosition(Float(point.x), Float(point.y)),
+                let role = try? element.role(),
+                role == .menuBar
+            {
+                return element
+            }
+        }
+        return nil
+    }
+
     /// Returns a Boolean value that indicates whether the given display
     /// has a valid menu bar.
     func hasValidMenuBar(in windows: [WindowInfo], for display: CGDirectDisplayID) -> Bool {
-        guard let menuBarWindow = WindowInfo.getMenuBarWindow(from: windows, for: display) else {
+        guard WindowInfo.getMenuBarWindow(from: windows, for: display) != nil else {
             return false
         }
-        let position = menuBarWindow.frame.origin
-        do {
-            let uiElement = try systemWideElement.elementAtPosition(Float(position.x), Float(position.y))
-            return try uiElement?.role() == .menuBar
-        } catch {
-            return false
-        }
+        return menuBarElement(for: display) != nil
     }
 
     /// Returns the frame of the application menu for the given display.
     func getApplicationMenuFrame(for displayID: CGDirectDisplayID) -> CGRect? {
-        let displayBounds = CGDisplayBounds(displayID)
-
         guard
-            let menuBar = try? systemWideElement.elementAtPosition(Float(displayBounds.origin.x), Float(displayBounds.origin.y)),
-            let role = try? menuBar.role(),
-            role == .menuBar,
+            let menuBar = menuBarElement(for: displayID),
             let items: [UIElement] = try? menuBar.arrayAttribute(.children)?.filter({ (try? $0.attribute(.enabled)) == true })
         else {
             return nil

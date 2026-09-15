@@ -282,6 +282,8 @@ extension MigrationManager {
                     hasBorder: oldConfiguration.hasBorder,
                     borderColor: oldConfiguration.borderColor,
                     borderWidth: oldConfiguration.borderWidth,
+                    tintOpacity: 0.2,
+                    blurAmount: 0,
                     tintKind: oldConfiguration.tintKind,
                     tintColor: oldConfiguration.tintColor,
                     tintGradient: oldConfiguration.tintGradient

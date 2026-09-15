@@ -19,8 +19,7 @@ struct SettingsWindow: Scene {
                 }
                 .frame(minWidth: 825, minHeight: 500)
         }
-        .commandsRemoved()
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
         .defaultSize(width: 900, height: 625)
         .environmentObject(appState)
         .environmentObject(appState.navigationState)

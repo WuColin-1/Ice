@@ -96,6 +96,11 @@ struct MenuBarAppearancePartialConfiguration: Hashable {
     var hasBorder: Bool
     var borderColor: CGColor
     var borderWidth: Double
+    /// The tint opacity, in the range `0...1`. `1` draws the tint fully solid.
+    var tintOpacity: Double
+    /// The frosted-glass blur strength over the live background, in the range
+    /// `0...1`. `0` disables the blur.
+    var blurAmount: Double
     var tintKind: MenuBarTintKind
     var tintColor: CGColor
     var tintGradient: CustomGradient
@@ -108,6 +113,8 @@ extension MenuBarAppearancePartialConfiguration {
         hasBorder: false,
         borderColor: .black,
         borderWidth: 1,
+        tintOpacity: 1,
+        blurAmount: 0,
         tintKind: .none,
         tintColor: .black,
         tintGradient: .defaultMenuBarTint
@@ -121,6 +128,10 @@ extension MenuBarAppearancePartialConfiguration: Codable {
         case hasBorder
         case borderColor
         case borderWidth
+        case tintOpacity
+        case blurAmount
+        // Legacy blur toggle, migrated into `blurAmount` on decode.
+        case hasBlur
         case shapeKind
         case fullShapeInfo
         case splitShapeInfo
@@ -131,11 +142,15 @@ extension MenuBarAppearancePartialConfiguration: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        // The blur toggle predates the blur amount slider.
+        let legacyBlur = try container.decodeIfPresent(Bool.self, forKey: .hasBlur) ?? false
         try self.init(
             hasShadow: container.decodeIfPresent(Bool.self, forKey: .hasShadow) ?? Self.defaultConfiguration.hasShadow,
             hasBorder: container.decodeIfPresent(Bool.self, forKey: .hasBorder) ?? Self.defaultConfiguration.hasBorder,
             borderColor: container.decodeIfPresent(CodableColor.self, forKey: .borderColor)?.cgColor ?? Self.defaultConfiguration.borderColor,
             borderWidth: container.decodeIfPresent(Double.self, forKey: .borderWidth) ?? Self.defaultConfiguration.borderWidth,
+            tintOpacity: container.decodeIfPresent(Double.self, forKey: .tintOpacity) ?? Self.defaultConfiguration.tintOpacity,
+            blurAmount: container.decodeIfPresent(Double.self, forKey: .blurAmount) ?? (legacyBlur ? 1 : Self.defaultConfiguration.blurAmount),
             tintKind: container.decodeIfPresent(MenuBarTintKind.self, forKey: .tintKind) ?? Self.defaultConfiguration.tintKind,
             tintColor: container.decodeIfPresent(CodableColor.self, forKey: .tintColor)?.cgColor ?? Self.defaultConfiguration.tintColor,
             tintGradient: container.decodeIfPresent(CustomGradient.self, forKey: .tintGradient) ?? Self.defaultConfiguration.tintGradient
@@ -148,6 +163,8 @@ extension MenuBarAppearancePartialConfiguration: Codable {
         try container.encode(hasBorder, forKey: .hasBorder)
         try container.encode(CodableColor(cgColor: borderColor), forKey: .borderColor)
         try container.encode(borderWidth, forKey: .borderWidth)
+        try container.encode(tintOpacity, forKey: .tintOpacity)
+        try container.encode(blurAmount, forKey: .blurAmount)
         try container.encode(tintKind, forKey: .tintKind)
         try container.encode(CodableColor(cgColor: tintColor), forKey: .tintColor)
         try container.encode(tintGradient, forKey: .tintGradient)
