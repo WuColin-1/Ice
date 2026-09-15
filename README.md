@@ -27,6 +27,22 @@ Ice is a powerful menu bar management tool. While its primary function is hiding
 
 Download the "Ice.zip" file from the [latest release](https://github.com/cavaldos/Ice/releases/latest) and move the unzipped app into your `Applications` folder.
 
+### Run CI checks locally
+
+To catch the same lint and macOS build failures before pushing, run from the repository root:
+
+```sh
+./ci-local.sh
+```
+
+The script supports `lint`, `build`, and `release` individually. For example, to validate a release tag format and build version `v0.11.13`:
+
+```sh
+./ci-local.sh release v0.11.13
+```
+
+Install SwiftLint first if needed: `brew install swiftlint`.
+
 ## Features/Roadmap
 
 ### Menu bar item management
