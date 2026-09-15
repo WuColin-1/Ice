@@ -11,7 +11,6 @@ struct IceApp: App {
     @ObservedObject var appState = AppState()
 
     init() {
-        NSSplitViewItem.swizzle()
         appDelegate.assignAppState(appState)
         // ponytail: migration touches UserDefaults + SettingsManager; defer past
         // first paint so login-window boot isn't blocked on disk decode.

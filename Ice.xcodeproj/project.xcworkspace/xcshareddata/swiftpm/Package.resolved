@@ -1,5 +1,5 @@
 {
-  "originHash" : "14b8b5af1a2791511c0c341e6a8c89336bda23ddb835804a01c3700862927acb",
+  "originHash" : "a2231809130d85931a369b04321c6cc4ea6e6eb3b89a555b07304d6381e368ef",
   "pins" : [
     {
       "identity" : "axswift",
@@ -8,15 +8,6 @@
       "state" : {
         "revision" : "81dcc36aced905d6464cc25e35f8d13184bbf21c",
         "version" : "0.3.2"
-      }
-    },
-    {
-      "identity" : "compactslider",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/cavaldos/CompactSlider",
-      "state" : {
-        "branch" : "xcode27-fix",
-        "revision" : "c11ddbb88af333605d2ce0542da8e7b26d1fc58b"
       }
     },
     {

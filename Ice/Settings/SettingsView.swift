@@ -37,10 +37,15 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        // ponytail: plain HStack instead of NavigationSplitView — the sidebar
+        // is fixed-width and non-collapsible, so the split view only added
+        // an undeletable Liquid Glass divider pill.
+        HStack(spacing: 0) {
             sidebar
-        } detail: {
+                .frame(width: sidebarWidth)
+            Divider()
             detailView
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle(navigationState.settingsNavigationIdentifier.localized)
     }
@@ -48,21 +53,12 @@ struct SettingsView: View {
     @ViewBuilder
     private var sidebar: some View {
         List(selection: $navigationState.settingsNavigationIdentifier) {
-            Section {
-                ForEach(SettingsNavigationIdentifier.allCases, id: \.self) { identifier in
-                    sidebarItem(for: identifier)
-                }
-            } header: {
-                Text("Ice")
-                    .font(.system(size: 36, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .padding(.vertical, 5)
+            ForEach(SettingsNavigationIdentifier.allCases, id: \.self) { identifier in
+                sidebarItem(for: identifier)
             }
-            .collapsible(false)
         }
+        .listStyle(.sidebar)
         .scrollDisabled(true)
-        .removeSidebarToggle()
-        .navigationSplitViewColumnWidth(sidebarWidth)
     }
 
     @ViewBuilder
@@ -89,6 +85,8 @@ struct SettingsView: View {
             Text(identifier.localized)
                 .font(.system(size: sidebarItemFontSize))
                 .padding(.leading, 2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         } icon: {
             icon(for: identifier).view
         }
