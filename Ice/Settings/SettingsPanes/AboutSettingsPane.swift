@@ -19,7 +19,7 @@ struct AboutSettingsPane: View {
     }
 
     private var contributeURL: URL {
-        URL(string: "https://github.com/cavaldos/Ice")!
+        URL(string: "https://github.com/cavaldos/Ice") ?? URL(fileURLWithPath: "/")
     }
 
     private var issuesURL: URL {
@@ -27,7 +27,7 @@ struct AboutSettingsPane: View {
     }
 
     private var donateURL: URL {
-        URL(string: "https://ko-fi.com/calvados")!
+        URL(string: "https://ko-fi.com/calvados") ?? URL(fileURLWithPath: "/")
     }
 
     private var lastUpdateCheckString: String {
