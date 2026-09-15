@@ -93,7 +93,9 @@ final class ControlItem {
         guard let window else {
             return nil
         }
-        return CGWindowID(window.windowNumber)
+        // windowNumber is Int and traps on overflow with the non-failable
+        // initializer on macOS 26 (see jordanbaird/Ice#580, #977).
+        return CGWindowID(exactly: window.windowNumber)
     }
 
     /// A Boolean value that indicates whether the control item serves as
