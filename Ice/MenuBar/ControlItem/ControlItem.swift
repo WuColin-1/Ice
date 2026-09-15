@@ -27,6 +27,33 @@ final class ControlItem {
         static let expanded: CGFloat = 10_000
     }
 
+    /// Length of an expanded hiding spacer.
+    ///
+    /// On macOS 27, a spacer wider than the native status region is discarded
+    /// instead of pushing its neighbours into overflow (jordanbaird/Ice#980),
+    /// so the width is fitted inside the region. Older systems keep the
+    /// 10 000 trick.
+    private func expandedHidingLength() -> CGFloat {
+        if #available(macOS 27, *) {
+            let screen = window?.screen ?? NSScreen.main
+            let regionWidth: CGFloat
+            if let rightArea = screen?.auxiliaryTopRightArea {
+                regionWidth = rightArea.width
+            } else if let screen {
+                let appMenuWidth = appState?.menuBarManager.getApplicationMenuFrame(for: screen.displayID)?.width ?? 300
+                regionWidth = screen.frame.width - appMenuWidth
+            } else {
+                regionWidth = 0
+            }
+            if regionWidth.isFinite, regionWidth > 64 {
+                return max(32, regionWidth - 32)
+            }
+            // ponytail: fallback guess inside any real status region; exact fit recomputed on next toggle
+            return 1_000
+        }
+        return Lengths.expanded
+    }
+
     /// The control item's hiding state (`@Published`).
     @Published var state = HidingState.hideItems
 
@@ -158,7 +185,7 @@ final class ControlItem {
                     case .visible: Lengths.standard
                     case .hidden, .alwaysHidden:
                         switch state {
-                        case .hideItems: Lengths.expanded
+                        case .hideItems: expandedHidingLength()
                         case .showItems: Lengths.standard
                         }
                     }

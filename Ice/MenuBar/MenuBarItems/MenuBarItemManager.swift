@@ -97,6 +97,15 @@ final class MenuBarItemManager: ObservableObject {
     /// The manager's menu bar item cache.
     @Published private(set) var itemCache = ItemCache()
 
+    /// A Boolean value that indicates whether menu bar item discovery is
+    /// unavailable on this system.
+    ///
+    /// On macOS 27, `CGSGetProcessMenuBarWindowList` returns only the Menubar
+    /// itself — per-item windows are no longer vended — so not even Ice's own
+    /// control items can be found. The Menu Bar Layout interface observes this
+    /// flag to explain the situation instead of showing empty sections.
+    @Published private(set) var isItemDiscoveryUnavailable = false
+
     /// The shared app state.
     private(set) weak var appState: AppState?
 
@@ -342,11 +351,23 @@ extension MenuBarItemManager {
         let alwaysHiddenControlItem = items.firstIndex(matching: .alwaysHiddenControlItem).map { items.remove(at: $0) }
 
         guard let hiddenControlItem else {
-            Logger.itemManager.warning("Missing control item for hidden section")
+            if Bridging.getWindowList(option: [.menuBarItems]).count <= 1 {
+                // Systemic failure, not a transient move: the window server
+                // no longer vends per-item windows (macOS 27). Flag it for
+                // the UI instead of silently showing empty sections.
+                if !isItemDiscoveryUnavailable {
+                    Logger.itemManager.error("Menu bar item discovery is unavailable on this macOS version; Menu Bar Layout is disabled")
+                }
+                isItemDiscoveryUnavailable = true
+            } else {
+                isItemDiscoveryUnavailable = false
+                Logger.itemManager.warning("Missing control item for hidden section")
+            }
             Logger.itemManager.debug("Clearing menu bar item cache")
             itemCache.clear()
             return
         }
+        isItemDiscoveryUnavailable = false
 
         do {
             if let alwaysHiddenControlItem {

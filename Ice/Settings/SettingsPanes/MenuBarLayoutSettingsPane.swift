@@ -13,6 +13,8 @@ struct MenuBarLayoutSettingsPane: View {
             missingScreenRecordingPermission
         } else if appState.menuBarManager.isMenuBarHiddenBySystemUserDefaults {
             cannotArrange
+        } else if appState.itemManager.isItemDiscoveryUnavailable {
+            discoveryUnavailable
         } else {
             IceForm(alignment: .leading, spacing: 20) {
                 header
@@ -54,6 +56,19 @@ struct MenuBarLayoutSettingsPane: View {
         Text("Ice cannot arrange menu bar items in automatically hidden menu bars")
             .font(.title3)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private var discoveryUnavailable: some View {
+        VStack(spacing: 12) {
+            Text("Menu Bar Layout isn't available on this macOS version")
+                .font(.title2)
+            Text("This version of macOS no longer exposes individual menu bar items to Ice, so Ice can't list, arrange, or hide them. You can still Command + drag items in the menu bar to arrange them manually.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .padding()
     }
 
     @ViewBuilder

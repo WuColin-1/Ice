@@ -158,6 +158,11 @@ final class AppState: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &c)
+        itemManager.objectWillChange
+            .sink { [weak self] in
+                self?.objectWillChange.send()
+            }
+            .store(in: &c)
         permissionsManager.objectWillChange
             .sink { [weak self] in
                 self?.objectWillChange.send()
