@@ -15,6 +15,31 @@ final class EventManager {
     /// Storage for internal observers.
     private var cancellables = Set<AnyCancellable>()
 
+    /// Cached menu bar window frames per display.
+    ///
+    /// `isMouseInsideMenuBar` runs on every mouse-move/scroll event, and the
+    /// auto-hide/fullscreen branch lists every on-screen window via
+    /// `CGWindowListCopyWindowInfo`. The frame only moves on space/display
+    /// transitions (observed below to invalidate), so a short-TTL cache keeps
+    /// the hot path off WindowServer IPC.
+    private var cachedMenuBarFrames = [CGDirectDisplayID: (frame: CGRect, date: Date)]()
+
+    /// Last time a hover/scroll check ran the expensive branch.
+    private var lastHoverCheck = Date.distantPast
+    private var lastScrollCheck = Date.distantPast
+
+    /// How long a cached menu bar frame is trusted.
+    private static let menuBarFrameTTL: TimeInterval = 2
+
+    /// Minimum gap between hover/scroll checks that may hit WindowServer/AX.
+    private static let hoverThrottleInterval: TimeInterval = 0.05
+    private static let scrollThrottleInterval: TimeInterval = 0.05
+
+    /// Height of the generous top-strip pre-check. The real bar is ~24-33pt;
+    /// anything below this can never be inside it, so the check only skips
+    /// work it would have done anyway.
+    private static let menuBarStripHeight: CGFloat = 40
+
     // MARK: Monitors
 
     /// Monitor for mouse down events.
@@ -117,6 +142,32 @@ final class EventManager {
                 }
                 .store(in: &c)
             }
+        }
+
+        // The cached menu bar frame only moves on space/display transitions.
+        Publishers.Merge(
+            NSWorkspace.shared.notificationCenter
+                .publisher(for: NSWorkspace.activeSpaceDidChangeNotification)
+                .mapToVoid(),
+            NotificationCenter.default
+                .publisher(for: NSApplication.didChangeScreenParametersNotification)
+                .mapToVoid()
+        )
+        .sink { [weak self] _ in
+            self?.cachedMenuBarFrames.removeAll()
+        }
+        .store(in: &c)
+
+        if let appState {
+            // Showing/hiding the system menu bar (or entering/leaving a
+            // fullscreen space) slides the menu bar window, so drop the cache.
+            appState.menuBarManager.$isMenuBarHiddenBySystem
+                .mapToVoid()
+                .merge(with: appState.$isActiveSpaceFullscreen.mapToVoid())
+                .sink { [weak self] _ in
+                    self?.cachedMenuBarFrames.removeAll()
+                }
+                .store(in: &c)
         }
 
         cancellables = c
@@ -363,6 +414,13 @@ extension EventManager {
             return
         }
 
+        // ponytail: mouseMoved fires at 10s-100s/sec and the check below hits
+        // WindowServer/AX. Coalesce to ~20/s; well under showOnHoverDelay (0.2s).
+        guard Date().timeIntervalSince(lastHoverCheck) >= Self.hoverThrottleInterval else {
+            return
+        }
+        lastHoverCheck = Date()
+
         let delay = appState.settingsManager.advancedSettingsManager.showOnHoverDelay
 
         Task {
@@ -407,6 +465,12 @@ extension EventManager {
         guard appState.settingsManager.generalSettingsManager.showOnScroll else {
             return
         }
+
+        // ponytail: scroll momentum bursts; same coalescing as hover.
+        guard Date().timeIntervalSince(lastScrollCheck) >= Self.scrollThrottleInterval else {
+            return
+        }
+        lastScrollCheck = Date()
 
         // Make sure the mouse is inside the menu bar.
         guard isMouseInsideMenuBar else {
@@ -453,12 +517,31 @@ extension EventManager {
             return false
         }
         if appState.menuBarManager.isMenuBarHiddenBySystem || appState.isActiveSpaceFullscreen {
-            if
-                let mouseLocation = MouseCursor.locationCoreGraphics,
-                let menuBarWindow = WindowInfo.getMenuBarWindow(for: screen.displayID)
-            {
-                return menuBarWindow.frame.contains(mouseLocation)
+            guard let mouseLocation = MouseCursor.locationCoreGraphics else {
+                return false
             }
+            // ponytail: cheap reject before CGWindowListCopyWindowInfo. The bar
+            // is a thin strip at the display's top edge; ~all mouse-move events
+            // are below it and would miss the contains() check anyway.
+            let displayBounds = CGDisplayBounds(screen.displayID)
+            guard
+                displayBounds.contains(mouseLocation),
+                mouseLocation.y <= displayBounds.origin.y + Self.menuBarStripHeight
+            else {
+                return false
+            }
+            let displayID = screen.displayID
+            if
+                let cached = cachedMenuBarFrames[displayID],
+                Date().timeIntervalSince(cached.date) < Self.menuBarFrameTTL
+            {
+                return cached.frame.contains(mouseLocation)
+            }
+            guard let menuBarWindow = WindowInfo.getMenuBarWindow(for: displayID) else {
+                return false
+            }
+            cachedMenuBarFrames[displayID] = (menuBarWindow.frame, Date())
+            return menuBarWindow.frame.contains(mouseLocation)
         } else if let mouseLocation = MouseCursor.locationAppKit {
             return mouseLocation.y > screen.visibleFrame.maxY && mouseLocation.y <= screen.frame.maxY
         }
