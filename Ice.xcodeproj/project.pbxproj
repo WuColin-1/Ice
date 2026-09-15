@@ -416,10 +416,10 @@
 		};
 		17F71BB32B880B4500905CBA /* XCRemoteSwiftPackageReference "CompactSlider" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/buh/CompactSlider";
+			repositoryURL = "https://github.com/cavaldos/CompactSlider";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.1.5;
+				kind = branch;
+				branch = xcode27-fix;
 			};
 		};
 		7127A9FB2C4881BC00D99DEF /* XCRemoteSwiftPackageReference "Ifrit" */ = {

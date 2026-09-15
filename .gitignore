@@ -3,3 +3,4 @@ build/
 xcuserdata/
 skills-lock.json
 release/
+*.pem

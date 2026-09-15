@@ -53,9 +53,7 @@ jobs:
         with:
           files: Ice.zip
           generate_release_notes: true
-# After the Release finishes, run one command locally to update the appcast
-# for the cavaldos/ice-releases repo (with GitHub Pages enabled):
-#   generate_appcast -f <private-key.pem> --download-url-prefix https://github.com/cavaldos/ice-releases/releases/download/<tag>/ /path/to/folder/containing/Ice.zip
-# then push appcast.xml to the ice-releases repo. Installed apps will pick up
-# the update automatically via SUFeedURL https://cavaldos.github.io/ice-releases/appcast.xml
+# After the Release finishes, publish the appcast so installed apps see it:
+#   ./script/update-appcast.sh <tag> --key <private-key.pem>
+# (pushes appcast.xml to the ice-releases repo; SUFeedURL https://cavaldos.github.io/ice-releases/appcast.xml)
 # ponytail: ad-hoc signing is for internal testing only, public releases need Developer ID + notarization
