@@ -20,6 +20,12 @@ DMG_NAME="$APP_NAME.dmg"
 DESTINATION="platform=macOS,arch=arm64"
 # Ad-hoc sign: repo pins team K2ATHQPJDP which you don't have cert for
 SIGN_ARGS='CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM='
+# Parity with CI (release.yml injects these from the tag): honor exported
+# MARKETING_VERSION / CURRENT_PROJECT_VERSION so About shows the same numbers,
+# otherwise fall back to the values baked into the Xcode project.
+VERSION_ARGS=""
+if [ -n "${MARKETING_VERSION:-}" ]; then VERSION_ARGS="$VERSION_ARGS MARKETING_VERSION=$MARKETING_VERSION"; fi
+if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then VERSION_ARGS="$VERSION_ARGS CURRENT_PROJECT_VERSION=$CURRENT_PROJECT_VERSION"; fi
 
 echo -e "${YELLOW}========================================${NC}"
 echo -e "${YELLOW}   Ice Build Script${NC}"
@@ -38,6 +44,7 @@ xcodebuild -project "$PROJECT_DIR/$APP_NAME.xcodeproj" \
     -configuration Release \
     -destination "$DESTINATION" \
     $SIGN_ARGS \
+    $VERSION_ARGS \
     clean build
 
 if [ $? -ne 0 ]; then
@@ -53,6 +60,7 @@ BUILD_DIR=$(xcodebuild -project "$PROJECT_DIR/$APP_NAME.xcodeproj" \
     -scheme "$APP_NAME" \
     -configuration Release \
     -destination "$DESTINATION" \
+    $VERSION_ARGS \
     -showBuildSettings 2>/dev/null | sed -n 's/^ *BUILT_PRODUCTS_DIR *= *//p' | head -1)
 
 APP_PATH="$BUILD_DIR/$APP_NAME.app"

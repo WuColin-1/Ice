@@ -6,17 +6,30 @@ permissions:
   contents: write
 jobs:
   release:
-    runs-on: macos-14
+    # Liquid Glass is gated on the link SDK, not the run-time OS: building
+    # with Xcode <=16 keeps the legacy appearance even on Tahoe, so CI must
+    # build with the Xcode 26+ SDK like local builds do. macos-14 runners
+    # (Xcode 16 max) are deprecated.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
-      - name: Select latest Xcode
+      - name: Select Xcode 26 SDK
         run: |
-          # objectVersion 70 requires Xcode 16+, but the runner default may be older.
           ls -d /Applications/Xcode*.app
-          LATEST=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
-          echo "Selecting $LATEST"
-          sudo xcode-select -s "$LATEST"
+          PINNED="/Applications/Xcode_26.6.app"
+          if [ -d "$PINNED" ]; then
+            XCODE="$PINNED"
+          else
+            XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          fi
+          if [ -z "${XCODE:-}" ]; then
+            echo "No Xcode 26+ found on runner"
+            exit 1
+          fi
+          echo "Selecting $XCODE"
+          sudo xcode-select -s "$XCODE"
           xcodebuild -version
+          echo "macOS SDK: $(xcrun --show-sdk-version --sdk macosx)"
       - name: Derive version from tag
         run: |
           TAG="${GITHUB_REF_NAME}"
