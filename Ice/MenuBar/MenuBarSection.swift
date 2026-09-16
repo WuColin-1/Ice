@@ -42,6 +42,17 @@ final class MenuBarSection {
     /// The shared app state.
     private weak var appState: AppState?
 
+    /// Earliest date at which a new toggle may start.
+    ///
+    /// Spam-clicking the divider (or mashing the hotkey) reverses the native
+    /// icon slide mid-flight, so the icons never rest and the pill chases a
+    /// moving target forever. Toggles inside the cooldown are dropped.
+    private var nextToggleDate = Date.distantPast
+
+    /// Minimum gap between two toggles, so one slide animation always
+    /// finishes before the next one starts.
+    private static let toggleCooldown: TimeInterval = 0.25
+
     /// A timer that manages rehiding the section.
     private var rehideTimer: Timer?
 
@@ -230,7 +241,15 @@ final class MenuBarSection {
     }
 
     /// Toggles the visibility of the section.
+    ///
+    /// Drops toggles that arrive inside ``toggleCooldown`` of the previous
+    /// one: reversing the slide mid-flight leaves icons and pill permanently
+    /// out of sync, so spam clicks wait for the animation to land instead.
     func toggle() {
+        guard Date() >= nextToggleDate else {
+            return
+        }
+        nextToggleDate = Date().addingTimeInterval(Self.toggleCooldown)
         if isHidden {
             show()
         } else {

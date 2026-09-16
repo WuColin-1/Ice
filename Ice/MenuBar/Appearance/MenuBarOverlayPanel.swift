@@ -343,46 +343,163 @@ final class MenuBarOverlayPanel: NSPanel {
 // MARK: - Content View
 
 private final class MenuBarOverlayPanelContentView: NSView {
-    /// Last-known trailing status widths per display.
+    /// Last-known trailing status widths per display, shared across panels.
+    ///
+    /// Panels are recreated on display/space/config changes, so per-view
+    /// memory forced a full AX re-learn (toggle on/off a few times) every
+    /// time — including every cold boot. Shared statics + UserDefaults
+    /// persistence mean the first draw already knows last session's widths;
+    /// the background rescan only corrects them.
     ///
     /// The Accessibility fallback scan blocks in cross-process IPC, so it must
     /// never run inside `draw(_:)`. Draws read this cache (main thread only);
-    /// stale entries trigger a background rescan that redisplay on completion.
-    private var trailingWidthCache = [CGDirectDisplayID: (width: CGFloat, date: Date)]()
+    /// stale entries trigger a background rescan that redisplays on completion.
+    private static var trailingWidthCache = [CGDirectDisplayID: (width: CGFloat, date: Date)]()
 
     /// Displays with a background trailing-width rescan in flight.
-    private var trailingWidthScanInFlight = Set<CGDirectDisplayID>()
+    private static var trailingWidthScanInFlight = Set<CGDirectDisplayID>()
 
     /// How long a cached trailing width is trusted before rescanning.
-    private static let trailingWidthTTL: TimeInterval = 5
+    ///
+    /// Short enough that third-party trailing changes (Control Center
+    /// sliders, clock/date width) re-measure quickly; the scan itself stays
+    /// on a background queue, so the cost is one background sweep per TTL.
+    private static let trailingWidthTTL: TimeInterval = 2
 
     /// Burst-rescan deadlines per display.
     ///
     /// While a hide/show slide animation is in flight, each completed scan
     /// chains another one so the trailing pill tracks the sliding icons
-    /// instead of jumping on the 2s TTL.
-    private var trailingBurstUntil = [CGDirectDisplayID: Date]()
-
-    /// Currently drawn trailing widths per display.
-    ///
-    /// The AX rescan lands once per ~0.3s, but the native icon slide runs at
-    /// 60fps. Draws read this value and ease it toward the cached target a
-    /// third of the remaining distance per frame (~0.25s to converge), so the
-    /// pill's leading edge slides with the icons — shrinking rightwards on
-    /// hide, expanding leftwards on show — instead of jumping after them.
-    private var displayedTrailingWidth = [CGDirectDisplayID: CGFloat]()
+    /// instead of jumping on the TTL.
+    private static var trailingBurstUntil = [CGDirectDisplayID: Date]()
 
     /// Settled trailing widths remembered per display: concealed (hidden
     /// section put away) vs revealed. Toggles alternate between these two
     /// values, so a hide/show can start gliding toward the remembered
     /// opposite end instantly — ~1s before the AX rescan lands to confirm.
-    private var settledConcealedWidth = [CGDirectDisplayID: CGFloat]()
-    private var settledRevealedWidth = [CGDirectDisplayID: CGFloat]()
+    private static var settledConcealedWidth = [CGDirectDisplayID: CGFloat]()
+    private static var settledRevealedWidth = [CGDirectDisplayID: CGFloat]()
 
-    /// Predictive target per display, active while a toggle burst is in
-    /// flight. Draws ease toward this instead of the stale cache; cleared
-    /// when the burst settles and the rescan confirms the real width.
-    private var predictiveTarget = [CGDirectDisplayID: CGFloat]()
+    /// Predictive target per display. Draws snap to this instead of the stale
+    /// cache while a toggle burst (or cold boot) is resolving; cleared when
+    /// the rescan confirms the real width.
+    private static var predictiveTarget = [CGDirectDisplayID: CGFloat]()
+
+    /// Currently drawn trailing width per display.
+    ///
+    /// Expands snap to the target instantly, but collapses ease toward it
+    /// (see `trailingCollapsePointsPerSecond`), so the pill glides shut with
+    /// the sliding icons instead of blinking to its final size.
+    private static var displayedTrailingWidth = [CGDirectDisplayID: CGFloat]()
+
+    /// Collapse speed of the trailing pill, in points per second.
+    ///
+    /// ~900pt/s closes a typical 300pt cluster in a third of a second —
+    /// close to the native icon slide, deliberately slower than the instant
+    /// snap used before. Raise to retract faster, lower for a lazier close.
+    private static let trailingCollapsePointsPerSecond: CGFloat = 900
+
+    /// 60Hz driver that advances the collapse animation. Created on demand,
+    /// stopped as soon as every width lands — never a perpetual redraw.
+    private var trailingEaseTimer: Timer?
+
+    /// Whether persisted trailing widths have been loaded this launch.
+    private static var trailingWidthsLoaded = false
+
+    /// UserDefaults key for persisted trailing widths.
+    private static let trailingWidthsDefaultsKey = "Ice.TrailingWidths.v1"
+
+    /// Loads persisted trailing widths once per launch.
+    ///
+    /// Stored as `"<displayID>.concealed|revealed|cache": Double`. Cached
+    /// entries load as stale (`.distantPast`) so the first draw paints the
+    /// remembered pill instantly while a background rescan re-validates it.
+    private static func loadPersistedTrailingWidths() {
+        guard !trailingWidthsLoaded else {
+            return
+        }
+        trailingWidthsLoaded = true
+        guard let dict = UserDefaults.standard.dictionary(forKey: trailingWidthsDefaultsKey) as? [String: Double] else {
+            return
+        }
+        for (key, value) in dict {
+            let parts = key.split(separator: ".")
+            guard
+                parts.count == 2,
+                let display = CGDirectDisplayID(String(parts[0]))
+            else {
+                continue
+            }
+            let width = CGFloat(value)
+            guard width > 0, width < 2000 else {
+                continue
+            }
+            switch parts[1] {
+            case "concealed":
+                settledConcealedWidth[display] = width
+            case "revealed":
+                settledRevealedWidth[display] = width
+            case "cache":
+                if trailingWidthCache[display] == nil {
+                    trailingWidthCache[display] = (width, .distantPast)
+                }
+            default:
+                break
+            }
+        }
+    }
+
+    /// Persists the learned trailing widths for the next launch.
+    private static func persistTrailingWidths() {
+        var dict = [String: Double]()
+        for (display, width) in settledConcealedWidth {
+            dict["\(display).concealed"] = Double(width)
+        }
+        for (display, width) in settledRevealedWidth {
+            dict["\(display).revealed"] = Double(width)
+        }
+        for (display, entry) in trailingWidthCache where entry.width > 0 {
+            dict["\(display).cache"] = Double(entry.width)
+        }
+        UserDefaults.standard.set(dict, forKey: trailingWidthsDefaultsKey)
+    }
+
+    /// Returns the remembered settled width for the display.
+    ///
+    /// Falls back to the opposite end when only one is known (fresh install,
+    /// first toggle): a slightly wrong pill beats a missing one.
+    private static func settledWidth(for display: CGDirectDisplayID, concealed: Bool?) -> CGFloat? {
+        guard let concealed else {
+            return settledConcealedWidth[display] ?? settledRevealedWidth[display]
+        }
+        let width = concealed ? settledConcealedWidth[display] : settledRevealedWidth[display]
+        return width ?? (concealed ? settledRevealedWidth[display] : settledConcealedWidth[display])
+    }
+
+    /// Whether the hidden section is currently concealed, if known.
+    private func isConcealed() -> Bool? {
+        guard
+            let hiddenSection = overlayPanel?.appState?.menuBarManager.section(withName: .hidden)
+        else {
+            return nil
+        }
+        return hiddenSection.controlItem.state == .hideItems
+    }
+
+    /// Seeds the predictive target from remembered widths when empty, so the
+    /// first draw after boot/recreation opens at the right size, not 0.
+    private func seedPredictionIfNeeded(for display: CGDirectDisplayID) {
+        Self.loadPersistedTrailingWidths()
+        guard Self.predictiveTarget[display] == nil else {
+            return
+        }
+        if
+            let remembered = Self.settledWidth(for: display, concealed: isConcealed()),
+            remembered > 0
+        {
+            Self.predictiveTarget[display] = remembered
+        }
+    }
 
     /// Frosted-glass blur of the live background, masked to the pills.
     ///
@@ -435,6 +552,18 @@ private final class MenuBarOverlayPanelContentView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         configureCancellables()
+        guard let panel = overlayPanel else {
+            // Detached: stop the collapse driver, if running.
+            trailingEaseTimer?.invalidate()
+            trailingEaseTimer = nil
+            return
+        }
+        // Warm the shared trailing cache immediately so the first draw (and
+        // cold boot) already has a width. Previously the scan only started
+        // lazily inside draw(), adding ~1s of mismatched pill at login.
+        let display = panel.owningScreen.displayID
+        seedPredictionIfNeeded(for: display)
+        refreshTrailingStatusWidth(for: display, force: false)
     }
 
     private func configureCancellables() {
@@ -506,6 +635,46 @@ private final class MenuBarOverlayPanelContentView: NSView {
                 self?.needsDisplay = true
             }
             .store(in: &c)
+
+        // Third-party trailing changes (Control Center sliders, clock/date
+        // width, minute rollover, freshly launched apps) don't move Ice's
+        // control items, so none of the above fires. Redisplay on a backstop
+        // interval; draws re-measure in the background when stale. The fast
+        // edge check below is what catches changes quickly — this is only
+        // the safety net.
+        Timer.publish(every: 2, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.needsDisplay = true
+            }
+            .store(in: &c)
+
+        // Fast edge check: a handful of AX probes around the currently drawn
+        // edge, ~10x cheaper than a full sweep. Catches appeared/removed
+        // icons within half a second instead of leaving them floating off
+        // the pill until the next toggle or backstop tick.
+        Timer.publish(every: 0.5, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                self?.checkTrailingEdge()
+            }
+            .store(in: &c)
+
+        // A newly launched or quit app often adds/removes a status icon with
+        // no Ice control item moving at all — check the edge right away.
+        Publishers.Merge(
+            NSWorkspace.shared.notificationCenter
+                .publisher(for: NSWorkspace.didLaunchApplicationNotification)
+                .mapToVoid(),
+            NSWorkspace.shared.notificationCenter
+                .publisher(for: NSWorkspace.didTerminateApplicationNotification)
+                .mapToVoid()
+        )
+        .debounce(for: 0.4, scheduler: DispatchQueue.main)
+        .sink { [weak self] _ in
+            self?.checkTrailingEdge()
+        }
+        .store(in: &c)
 
         cancellables = c
     }
@@ -712,30 +881,81 @@ private final class MenuBarOverlayPanelContentView: NSView {
     /// Draws now snap to the cached/predicted target; the background rescan
     /// corrects it once AX lands.
     private func cachedTrailingStatusWidth(for display: CGDirectDisplayID) -> CGFloat {
+        seedPredictionIfNeeded(for: display)
         refreshTrailingStatusWidth(for: display, force: false)
-        let target = predictiveTarget[display] ?? trailingWidthCache[display]?.width ?? 0
-        displayedTrailingWidth[display] = target
-        return target
+        let target = Self.predictiveTarget[display] ?? Self.trailingWidthCache[display]?.width ?? 0
+        guard let current = Self.displayedTrailingWidth[display] else {
+            // First draw after boot/recreation: snap, never grow from 0.
+            Self.displayedTrailingWidth[display] = target
+            return target
+        }
+        if target >= current {
+            // Expanding (show): snap, as before.
+            Self.displayedTrailingWidth[display] = target
+            return target
+        }
+        // Collapsing (hide): hold the current frame and let the 60Hz driver
+        // glide it down to the target.
+        startTrailingEaseIfNeeded()
+        return current
+    }
+
+    /// Starts the 60Hz collapse driver, unless already running.
+    private func startTrailingEaseIfNeeded() {
+        guard trailingEaseTimer == nil else {
+            return
+        }
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            self?.stepTrailingEase()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        trailingEaseTimer = timer
+    }
+
+    /// Advances the collapse animation one frame toward its target.
+    private func stepTrailingEase() {
+        guard let panel = overlayPanel else {
+            trailingEaseTimer?.invalidate()
+            trailingEaseTimer = nil
+            return
+        }
+        let display = panel.owningScreen.displayID
+        let target = Self.predictiveTarget[display] ?? Self.trailingWidthCache[display]?.width ?? 0
+        let current = Self.displayedTrailingWidth[display] ?? target
+        let next: CGFloat = if target >= current {
+            target
+        } else {
+            max(target, current - Self.trailingCollapsePointsPerSecond / 60.0)
+        }
+        Self.displayedTrailingWidth[display] = next
+        if next == target {
+            trailingEaseTimer?.invalidate()
+            trailingEaseTimer = nil
+        }
+        needsDisplay = true
     }
 
     /// A control item moved or toggled: redraw now and keep chaining scans
     /// briefly so the rescan confirms (and corrects) the prediction mid-slide.
     private func noteControlItemMoved() {
         needsDisplay = true
-        guard let panel = overlayPanel, let appState = panel.appState else {
+        guard let panel = overlayPanel else {
             return
         }
         let display = panel.owningScreen.displayID
         // Toggles alternate concealed <-> revealed: predict the destination
         // now instead of waiting ~1s for the AX rescan. Hide => shrink toward
         // the remembered concealed width; show => expand toward revealed.
-        let concealing = appState.menuBarManager.section(withName: .hidden)?.controlItem.state == .hideItems
-        if concealing, let remembered = settledConcealedWidth[display], remembered > 0 {
-            predictiveTarget[display] = remembered
-        } else if !concealing, let remembered = settledRevealedWidth[display], remembered > 0 {
-            predictiveTarget[display] = remembered
+        // Falls back to the opposite end when only one is known, so even the
+        // very first toggle glides instead of jumping from 0.
+        let concealed = isConcealed()
+        if
+            let remembered = Self.settledWidth(for: display, concealed: concealed),
+            remembered > 0
+        {
+            Self.predictiveTarget[display] = remembered
         }
-        trailingBurstUntil[display] = Date().addingTimeInterval(1.2)
+        Self.trailingBurstUntil[display] = Date().addingTimeInterval(1.5)
         refreshTrailingStatusWidth(for: display, force: true)
     }
 
@@ -743,38 +963,261 @@ private final class MenuBarOverlayPanelContentView: NSView {
     /// flight. Completions redisplay and, while a toggle burst is active,
     /// chain the next scan.
     private func refreshTrailingStatusWidth(for display: CGDirectDisplayID, force: Bool) {
-        let cached = trailingWidthCache[display]
+        let cached = Self.trailingWidthCache[display]
         let isStale = force || cached.map { Date().timeIntervalSince($0.date) > Self.trailingWidthTTL } ?? true
-        guard isStale, !trailingWidthScanInFlight.contains(display) else {
+        guard isStale, !Self.trailingWidthScanInFlight.contains(display) else {
             return
         }
-        trailingWidthScanInFlight.insert(display)
-        let previous = cached?.width ?? 0
+        Self.trailingWidthScanInFlight.insert(display)
+        let concealed = isConcealed()
+        // Never collapse to 0 while a stale-but-sane value exists: a
+        // slightly wrong pill is far less jarring than a disappearing one.
+        let previous = cached?.width ?? Self.settledWidth(for: display, concealed: concealed) ?? 0
+        DispatchQueue.global(qos: .userInitiated).async {
+            let width = Self.trailingStatusWidthFallback(for: display) ?? previous
+            DispatchQueue.main.async { [weak self] in
+                // Shared state first: the result survives even if this view
+                // is gone (panel recreated mid-scan).
+                Self.trailingWidthCache[display] = (width, Date())
+                Self.trailingWidthScanInFlight.remove(display)
+                guard let self else {
+                    return
+                }
+                self.needsDisplay = true
+                if let until = Self.trailingBurstUntil[display], Date() < until {
+                    self.refreshTrailingStatusWidth(for: display, force: true)
+                } else {
+                    Self.trailingBurstUntil.removeValue(forKey: display)
+                    // Burst settled: this is the real end position. Remember
+                    // it so the next toggle (and next launch) can predict
+                    // instantly, and drop the prediction it was gliding toward.
+                    // Re-read: the toggle may have flipped again mid-scan.
+                    if width > 0 {
+                        let fresh = self.isConcealed() ?? concealed
+                        if fresh ?? true {
+                            Self.settledConcealedWidth[display] = width
+                        } else {
+                            Self.settledRevealedWidth[display] = width
+                        }
+                        Self.persistTrailingWidths()
+                    }
+                    Self.predictiveTarget.removeValue(forKey: display)
+                }
+            }
+        }
+    }
+
+    /// Whether an AX element at the given role/pid belongs to the trailing
+    /// status cluster. App-menu items share the frontmost pid and are out.
+    private static func isTrailingStatusElement(role: String?, pid: pid_t?, appMenuPid: pid_t?) -> Bool {
+        // macOS 27 roles observed in the status cluster: AXGroup
+        // (MenuBarAgent/ControlCenter), AXMenuBarItem, AXButton and AXImage
+        // (third-party extras, screen-sharing/mirroring indicators).
+        if role == "AXGroup" {
+            return true
+        }
+        if role == "AXMenuBarItem" || role == "AXButton" || role == "AXImage" {
+            return pid != nil && pid != appMenuPid
+        }
+        return false
+    }
+
+    /// Returns the frame of the status element at the given point, or `nil`
+    /// when there is nothing status-like there.
+    private static func statusFrameAt(
+        x: CGFloat,
+        y: Float,
+        displayBounds: CGRect,
+        appMenuPid: pid_t?
+    ) -> CGRect? {
+        guard let element = try? systemWideElement.elementAtPosition(Float(x), y) else {
+            return nil
+        }
+        let role: String? = try? element.attribute("AXRole")
+        if role == "AXMenuBar" {
+            return nil
+        }
+        let frame: CGRect? = try? element.attribute("AXFrame")
+        let pid: pid_t? = try? element.pid()
+        guard
+            isTrailingStatusElement(role: role, pid: pid, appMenuPid: appMenuPid),
+            let frame,
+            frame.width > 0, frame.height > 0, frame.height <= 50,
+            frame.minY <= displayBounds.origin.y + 10
+        else {
+            return nil
+        }
+        return frame
+    }
+
+    /// Refines a coarse leftmost edge by sweeping the strip just left of it.
+    ///
+    /// The coarse 16pt single-row sweep can straddle a narrow glyph (or miss
+    /// one whose hit area sits off the probed row, e.g. an active
+    /// screen-sharing pill) and stop one icon too far right, leaving that
+    /// icon floating off the pill. This bounded sweep (100pt, 8pt columns,
+    /// three rows) catches the straggler. It stops after 24pt of empty strip
+    /// so it can never jump the center gap into the application menu.
+    private static func refineLeadingEdge(
+        leftOf coarseX: CGFloat,
+        displayBounds: CGRect,
+        appMenuPid: pid_t?
+    ) -> CGFloat {
+        var leftmostX = coarseX
+        var consecutiveMisses = 0
+        var x = coarseX - 8
+        let stopX = max(displayBounds.minX, coarseX - 100)
+        let rows: [Float] = [
+            Float(displayBounds.origin.y + 10),
+            Float(displayBounds.origin.y + 16),
+            Float(displayBounds.origin.y + 22),
+        ]
+        while x > stopX, consecutiveMisses < 3 {
+            var found: CGRect?
+            for y in rows {
+                if let frame = statusFrameAt(x: x, y: y, displayBounds: displayBounds, appMenuPid: appMenuPid) {
+                    found = frame
+                    break
+                }
+            }
+            if let found {
+                leftmostX = min(leftmostX, found.minX)
+                consecutiveMisses = 0
+                // Skip past the found element, like the coarse sweep.
+                x = min(found.minX - 2, x - 8)
+            } else {
+                consecutiveMisses += 1
+                x -= 8
+            }
+        }
+        return leftmostX
+    }
+
+    /// Verifies the currently drawn edge with a few AX probes: status just
+    /// inside it, wallpaper just outside it.
+    ///
+    /// Returns `false` when icons appeared/removed past the edge. Open menus
+    /// covering the bar read as transient overlay and count as valid, so a
+    /// menu never triggers a rescan war.
+    private static func validateTrailingEdge(
+        expectedWidth: CGFloat,
+        displayBounds: CGRect,
+        appMenuPid: pid_t?
+    ) -> Bool {
+        let edgeX = displayBounds.maxX - expectedWidth
+        guard edgeX > displayBounds.minX + 20 else {
+            // Nearly full bar — the full sweep owns this case.
+            return true
+        }
+        let rows: [Float] = [
+            Float(displayBounds.origin.y + 16),
+            Float(displayBounds.origin.y + 10),
+        ]
+        var insideHit = false
+        for y in rows {
+            guard let element = try? systemWideElement.elementAtPosition(
+                Float(min(edgeX + 6, displayBounds.maxX - 2)),
+                y
+            ) else {
+                continue
+            }
+            let role: String? = try? element.attribute("AXRole")
+            if role == "AXMenu" || role == "AXMenuItem" {
+                return true
+            }
+            if role == "AXMenuBar" {
+                continue
+            }
+            let pid: pid_t? = try? element.pid()
+            guard isTrailingStatusElement(role: role, pid: pid, appMenuPid: appMenuPid) else {
+                continue
+            }
+            let frame: CGRect? = try? element.attribute("AXFrame")
+            if
+                let frame,
+                frame.width > 0, frame.height > 0, frame.height <= 50,
+                frame.minY <= displayBounds.origin.y + 10
+            {
+                insideHit = true
+                break
+            }
+        }
+        guard insideHit else {
+            return false
+        }
+        // Outside must be empty. The pill pads 10pt past the AX frame, so
+        // 16/28pt out is clear wallpaper when the edge is right.
+        for dx: CGFloat in [16, 28] {
+            let ox = edgeX - dx
+            if ox <= displayBounds.minX {
+                break
+            }
+            for y in rows where statusFrameAt(x: ox, y: y, displayBounds: displayBounds, appMenuPid: appMenuPid) != nil {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Fast-path edge check; runs on a timer and on app launch/terminate.
+    ///
+    /// On mismatch it kicks a short burst + forced rescan so the pill heals
+    /// in ~1s. On match it just touches the cache timestamp, which also keeps
+    /// the draw-path backstop from firing redundant full sweeps — steady
+    /// state costs ~10 AX probes/s instead of a full sweep every TTL.
+    private func checkTrailingEdge() {
+        guard
+            let panel = overlayPanel,
+            let appState = panel.appState,
+            !appState.isPreview,
+            !appState.menuBarManager.isMenuBarHiddenBySystem,
+            !appState.isActiveSpaceFullscreen
+        else {
+            return
+        }
+        let display = panel.owningScreen.displayID
+        guard
+            !Self.trailingWidthScanInFlight.contains(display),
+            Self.trailingBurstUntil[display].map({ Date() >= $0 }) ?? true
+        else {
+            // A scan or toggle burst already owns the edge.
+            return
+        }
+        let displayBounds = CGDisplayBounds(display)
+        guard displayBounds.width > 0 else {
+            return
+        }
+        let expected = Self.predictiveTarget[display]
+            ?? Self.trailingWidthCache[display]?.width
+            ?? Self.settledWidth(for: display, concealed: isConcealed())
+            ?? 0
+        guard expected > 0 else {
+            refreshTrailingStatusWidth(for: display, force: false)
+            return
+        }
+        let y = Float(displayBounds.origin.y + 16)
+        let appMenuPid: pid_t? = try? systemWideElement.elementAtPosition(
+            Float(displayBounds.origin.x + 2),
+            y
+        )?.pid()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let width = self?.trailingStatusWidthFallback(for: display) ?? previous
+            let valid = Self.validateTrailingEdge(
+                expectedWidth: expected,
+                displayBounds: displayBounds,
+                appMenuPid: appMenuPid
+            )
             DispatchQueue.main.async { [weak self] in
                 guard let self else {
                     return
                 }
-                self.trailingWidthCache[display] = (width, Date())
-                self.trailingWidthScanInFlight.remove(display)
-                self.needsDisplay = true
-                if let until = self.trailingBurstUntil[display], Date() < until {
-                    self.refreshTrailingStatusWidth(for: display, force: true)
-                } else {
-                    self.trailingBurstUntil.removeValue(forKey: display)
-                    // Burst settled: this is the real end position. Remember
-                    // it so the next toggle can predict instantly, and drop
-                    // the prediction it was gliding toward.
-                    if width > 0, let appState = self.overlayPanel?.appState {
-                        let concealed = appState.menuBarManager.section(withName: .hidden)?.controlItem.state == .hideItems
-                        if concealed {
-                            self.settledConcealedWidth[display] = width
-                        } else {
-                            self.settledRevealedWidth[display] = width
-                        }
+                if valid {
+                    if Self.trailingWidthCache[display] != nil {
+                        Self.trailingWidthCache[display]?.date = Date()
                     }
-                    self.predictiveTarget.removeValue(forKey: display)
+                } else {
+                    Self.trailingBurstUntil[display] = Date().addingTimeInterval(1.0)
+                    self.needsDisplay = true
+                    self.refreshTrailingStatusWidth(for: display, force: true)
                 }
             }
         }
@@ -790,7 +1233,7 @@ private final class MenuBarOverlayPanelContentView: NSView {
     ///
     /// - ponytail: O(n) AX scan per call; always call via cachedTrailingStatusWidth
     ///   (background + TTL), never directly from draw.
-    private func trailingStatusWidthFallback(for display: CGDirectDisplayID) -> CGFloat? {
+    private static func trailingStatusWidthFallback(for display: CGDirectDisplayID) -> CGFloat? {
         let displayBounds = CGDisplayBounds(display)
         guard displayBounds.width > 0 else {
             return nil
@@ -809,46 +1252,32 @@ private final class MenuBarOverlayPanelContentView: NSView {
         // AXMenuBar instead of a button, so early-exit on gaps stops too soon.
         // Step 16pt stays below the narrowest icon (~20pt) so nothing is
         // skipped, but cuts AX round-trips ~40% vs 10pt — the scan, not the
-        // animation, was the ~1s lag behind the icons.
+        // animation, was the ~1s lag behind the icons. A bounded fine sweep
+        // below fixes up whatever the coarse step straddles.
         let step: CGFloat = 16
         var x = displayBounds.maxX - 2
         let stopX = max(displayBounds.minX, displayBounds.maxX - 800)
         while x > stopX {
-            guard let element = try? systemWideElement.elementAtPosition(Float(x), y) else {
+            guard let frame = statusFrameAt(x: x, y: y, displayBounds: displayBounds, appMenuPid: appMenuPid) else {
                 x -= step
                 continue
             }
-            let role: String? = try? element.attribute("AXRole")
-            if role == "AXMenuBar" {
-                x -= step
-                continue
-            }
-            let frame: CGRect? = try? element.attribute("AXFrame")
-            let pid: pid_t? = try? element.pid()
-            // macOS 27 roles observed in the status cluster: AXGroup
-            // (MenuBarAgent/ControlCenter), AXMenuBarItem, AXButton
-            // (third-party extras). App-menu items share the frontmost pid.
-            let isStatusElement: Bool = if role == "AXGroup" {
-                true
-            } else if role == "AXMenuBarItem" || role == "AXButton" {
-                pid != nil && pid != appMenuPid
-            } else {
-                false
-            }
-            if
-                isStatusElement,
-                let frame,
-                frame.width > 0, frame.height > 0, frame.height <= 50,
-                frame.minY <= displayBounds.origin.y + 10
-            {
-                leftmostX = min(leftmostX ?? frame.minX, frame.minX)
-                // Skip past this element to cut down on AX calls.
-                // min() guarantees progress when the frame edge lands on x.
-                x = min(frame.minX - 2, x - step)
-                continue
-            }
-            x -= step
+            leftmostX = min(leftmostX ?? frame.minX, frame.minX)
+            // Skip past this element to cut down on AX calls.
+            // min() guarantees progress when the frame edge lands on x.
+            x = min(frame.minX - 2, x - step)
+            continue
         }
+        guard let coarseX = leftmostX else {
+            return nil
+        }
+        // Fine sweep for a narrow/off-row straggler left of the coarse edge
+        // (e.g. an active screen-sharing pill), then pad left so the pill
+        // tucks under system-drawn active backgrounds that run wider than
+        // their AX frame. Over-covering wallpaper by a few points is
+        // invisible; leaving an icon off the pill is not.
+        let refinedX = refineLeadingEdge(leftOf: coarseX, displayBounds: displayBounds, appMenuPid: appMenuPid)
+        leftmostX = max(displayBounds.minX, refinedX - 10)
         guard let leftmostX else {
             return nil
         }
@@ -864,6 +1293,7 @@ private final class MenuBarOverlayPanelContentView: NSView {
         guard width < scanWindow - 10 else {
             return nil
         }
+        Logger.overlayPanel.debug("Trailing scan: coarse=\(coarseX) refined=\(refinedX) width=\(width)")
         return width
     }
 
