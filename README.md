@@ -64,12 +64,12 @@ Our goal is to make Ice feel fast, predictable, and unobtrusive — a tool that 
 
 ![Demo ](Resources/vid/demomaos27.gif)
 
-| Ice Bar | Drag & drop layout |
-|---|---|
+| Ice Bar                                                                                     | Drag & drop layout                                                                                  |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | ![Ice Bar](https://github.com/user-attachments/assets/f1429589-6186-4e1b-8aef-592219d49b9b) | ![Menu Bar Layout](https://github.com/user-attachments/assets/095442ba-f2d0-4bb4-9632-91e26ef8d45b) |
 
-| Appearance settings | Item spacing |
-|---|---|
+| Appearance settings                                                                                     | Item spacing                                                                                              |
+| ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | ![Menu Bar Appearance](https://github.com/user-attachments/assets/8c22c185-c3d2-49bb-971e-e1fc17df04b3) | ![Menu Bar Item Spacing](https://github.com/user-attachments/assets/b196aa7e-184a-4d4c-b040-502f4aae40a6) |
 
 ## Contributing
@@ -89,3 +89,9 @@ A fork of [Ice](https://github.com/jordanbaird/Ice) by [Jordan Baird](https://gi
 ## License
 
 [GPL-3.0](LICENSE) — Ice is and will always remain open-source and free.
+
+## Star History
+
+<a href="https://star-history.com/#calvados/Ice&Date">
+    <img src="https://api.star-history.com/svg?repos=calvados/Ice&type=Date" alt="Star History Chart" width="500">
+</a>
