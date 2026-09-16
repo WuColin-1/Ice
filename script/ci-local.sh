@@ -8,6 +8,10 @@ if ! command -v swiftlint >/dev/null; then
   echo "swiftlint not found — run: brew install swiftlint"
   exit 1
 fi
+# Keep in sync with .github/workflows/lint.yml (SWIFTLINT_VERSION).
+if [ "$(swiftlint version)" != "0.65.1" ]; then
+  echo "warning: local swiftlint $(swiftlint version) != CI 0.65.1 — run: brew upgrade swiftlint"
+fi
 echo "==> swiftlint --strict"
 swiftlint --strict
 
