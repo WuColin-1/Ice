@@ -11,15 +11,6 @@
       }
     },
     {
-      "identity" : "ifrit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ukushu/Ifrit",
-      "state" : {
-        "revision" : "e610cdf4eddec1e76a9c7ae5db37738c7f73150b",
-        "version" : "2.0.3"
-      }
-    },
-    {
       "identity" : "launchatlogin-modern",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/sindresorhus/LaunchAtLogin-Modern",
