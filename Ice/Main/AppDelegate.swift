@@ -41,18 +41,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        // Perform setup after a small delay to ensure that the settings window
-        // has been assigned.
+        // Luôn setup để vào thẳng app; nếu thiếu quyền thì mở thêm cửa sổ
+        // permissions (không chặn) — user có thể Skip và grant sau trong Settings.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             guard !appState.isPreview else {
                 return
             }
-            // If we have the required permissions, set up the shared app state.
-            // Otherwise, open the permissions window.
-            switch appState.permissionsManager.permissionsState {
-            case .hasAllPermissions, .hasRequiredPermissions:
-                appState.performSetup()
-            case .missingPermissions:
+            appState.performSetup()
+            if case .missingPermissions = appState.permissionsManager.permissionsState {
                 appState.activate(withPolicy: .regular)
                 appState.openPermissionsWindow()
             }

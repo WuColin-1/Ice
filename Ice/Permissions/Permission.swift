@@ -107,10 +107,18 @@ class Permission: ObservableObject, Identifiable {
         }
     }
 
-    /// Stops running the permission check.
-    func stopCheck() {
+    /// Stops the periodic permission check, keeping one-shot observers alive.
+    ///
+    /// Called automatically once permissions are sufficient, so a skipped
+    /// launch still notices a later grant from Settings.
+    func stopTimerCheck() {
         timerCancellable?.cancel()
         timerCancellable = nil
+    }
+
+    /// Stops running the permission check.
+    func stopCheck() {
+        stopTimerCheck()
         hasPermissionCancellable?.cancel()
         hasPermissionCancellable = nil
     }

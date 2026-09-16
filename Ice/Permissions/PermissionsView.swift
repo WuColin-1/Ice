@@ -10,10 +10,13 @@ struct PermissionsView: View {
     @Environment(\.openWindow) private var openWindow
 
     private var continueButtonText: LocalizedStringKey {
-        if case .hasRequiredPermissions = permissionsManager.permissionsState {
-            "Continue in Limited Mode"
-        } else {
+        switch permissionsManager.permissionsState {
+        case .hasAllPermissions:
             "Continue"
+        case .hasRequiredPermissions:
+            "Continue in Limited Mode"
+        case .missingPermissions:
+            "Skip for Now"
         }
     }
 
@@ -32,6 +35,7 @@ struct PermissionsView: View {
 
             explanationView
             permissionsGroupStack
+            skipHintView
 
             footerView
                 .padding(.vertical)
@@ -42,7 +46,9 @@ struct PermissionsView: View {
             guard let window else {
                 return
             }
-            window.styleMask.remove([.closable, .miniaturizable])
+            // Cho đóng cửa sổ để Skip (chỉ khóa miniaturize); app đã setup
+            // ở nền nên đóng lúc nào cũng an toàn.
+            window.styleMask.remove([.miniaturizable])
             if let contentView = window.contentView {
                 with(contentView.safeAreaInsets) { insets in
                     insets.bottom = -insets.bottom
@@ -95,6 +101,16 @@ struct PermissionsView: View {
     }
 
     @ViewBuilder
+    private var skipHintView: some View {
+        if case .missingPermissions = permissionsManager.permissionsState {
+            Text("You can skip and grant permissions later in Settings.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding(.top, 10)
+        }
+    }
+
+    @ViewBuilder
     private var footerView: some View {
         HStack {
             quitButton
@@ -127,7 +143,6 @@ struct PermissionsView: View {
                 .frame(maxWidth: .infinity)
                 .foregroundStyle(continueButtonForegroundStyle)
         }
-        .disabled(permissionsManager.permissionsState == .missingPermissions)
     }
 
     @ViewBuilder

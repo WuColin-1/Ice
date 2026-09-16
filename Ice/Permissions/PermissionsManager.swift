@@ -62,11 +62,22 @@ final class PermissionsManager: ObservableObject {
                 permissionsState = .hasRequiredPermissions
             } else {
                 permissionsState = .missingPermissions
+                return
             }
+            // If the app has all required permissions, stop the periodic checks.
+            // This is important for performance, as the periodic checks can be expensive.
+            stopTimerChecks()
         }
         .store(in: &c)
 
         cancellables = c
+    }
+
+    /// Stops the periodic permission checks, keeping one-shot observers alive.
+    func stopTimerChecks() {
+        for permission in allPermissions {
+            permission.stopTimerCheck()
+        }
     }
 
     /// Stops running all permissions checks.

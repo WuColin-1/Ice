@@ -57,6 +57,9 @@ final class AppState: ObservableObject {
     /// The window that contains the permissions interface.
     private(set) weak var permissionsWindow: NSWindow?
 
+    /// A Boolean value that indicates whether setup has been performed.
+    private(set) var isSetup = false
+
     /// A Boolean value that indicates whether the "ShowOnHover" feature is prevented.
     private(set) var isShowOnHoverPrevented = false
 
@@ -187,12 +190,20 @@ final class AppState: ObservableObject {
 
     /// Sets up the app state.
     func performSetup() {
+        guard !isSetup else {
+            return
+        }
+        isSetup = true
         // Settings first: ControlItems subscribe to settings defaults, so loading
         // settings before creating menu bar sections avoids a double
         // updateStatusItem/add-remove cycle at boot.
         settingsManager.performSetup()
         configureCancellables()
-        permissionsManager.stopAllChecks()
+        // Chỉ dừng check khi đã đủ quyền; nếu Skip khi còn thiếu thì giữ
+        // timer để tự nhận ra khi user grant sau trong Settings.
+        if permissionsManager.permissionsState != .missingPermissions {
+            permissionsManager.stopAllChecks()
+        }
         menuBarManager.performSetup()
         appearanceManager.performSetup()
         eventManager.performSetup()
