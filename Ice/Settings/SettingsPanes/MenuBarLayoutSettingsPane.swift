@@ -66,6 +66,9 @@ struct MenuBarLayoutSettingsPane: View {
             Text("This version of macOS no longer exposes individual menu bar items to Ice, so Ice can't list, arrange, or hide them. You can still Command + drag items in the menu bar to arrange them manually.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            Text("Tip: turn on \"Show section dividers\" in Advanced settings, then Command + drag the small chevron (Always-Hidden) to the left of the large chevron (Hidden), and drag items to the left of the chevron for the section they belong to.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .padding()

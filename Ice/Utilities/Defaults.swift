@@ -151,6 +151,9 @@ extension Defaults {
         case autoRehide = "AutoRehide"
         case rehideStrategy = "RehideStrategy"
         case rehideInterval = "RehideInterval"
+        case showVisibleSection = "ShowVisibleSection"
+        case showHiddenSection = "ShowHiddenSection"
+        case showAlwaysHiddenSection = "ShowAlwaysHiddenSection"
 
         // MARK: Hotkey Settings
 

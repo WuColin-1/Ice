@@ -123,7 +123,12 @@ final class ControlItem {
             case .hidden:
                 StatusItemDefaults[.preferredPosition, autosaveName] = 1
             case .alwaysHidden:
-                break
+                // Lower values sit further right, so the always-hidden
+                // divider defaults left of the hidden divider. On macOS 27
+                // per-item windows are gone and nothing can auto-arrange
+                // the dividers, so a correct initial position is the only
+                // thing keeping the sections in the right order.
+                StatusItemDefaults[.preferredPosition, autosaveName] = 2
             }
         }
 
@@ -329,7 +334,8 @@ final class ControlItem {
                 .sink { [weak self] enable in
                     guard
                         let self,
-                        identifier == .alwaysHidden
+                        identifier == .alwaysHidden,
+                        let visibleSection = appState.menuBarManager.section(withName: .visible)
                     else {
                         return
                     }
@@ -338,6 +344,9 @@ final class ControlItem {
                     } else {
                         removeFromMenuBar()
                     }
+                    // The Ice icon mirrors this section; repaint its arrow
+                    // now that the source has changed.
+                    visibleSection.controlItem.updateStatusItem(with: visibleSection.controlItem.state)
                 }
                 .store(in: &c)
         }
@@ -359,7 +368,7 @@ final class ControlItem {
     }
 
     /// Updates the appearance of the status item using the given hiding state.
-    private func updateStatusItem(with state: HidingState) {
+    func updateStatusItem(with state: HidingState) {
         guard
             let appState,
             let section,
@@ -374,11 +383,17 @@ final class ControlItem {
             // Enable the cell, as it may have been previously disabled.
             button.cell?.isEnabled = true
             let icon = appState.settingsManager.generalSettingsManager.iceIcon
-            // We can usually just set the image directly from the icon.
-            button.image = switch state {
-            case .hideItems: icon.hidden.nsImage(for: appState)
-            case .showItems: icon.visible.nsImage(for: appState)
+            // Closed points right like a collapsed disclosure; open points
+            // left toward the revealed items, matching the section dividers.
+            // The arrow mirrors the always-hidden section while it is enabled;
+            // otherwise it mirrors this section.
+            let alwaysHiddenSection = appState.menuBarManager.section(withName: .alwaysHidden)
+            let showsOpenArrow = if alwaysHiddenSection?.isEnabled == true {
+                alwaysHiddenSection?.controlItem.state == .showItems
+            } else {
+                state == .showItems
             }
+            button.image = showsOpenArrow ? icon.hidden.nsImage(for: appState) : icon.visible.nsImage(for: appState)
             if
                 case .custom = icon.name,
                 let originalImage = button.image
@@ -434,6 +449,15 @@ final class ControlItem {
                 if let alwaysHiddenSection = appState.menuBarManager.section(withName: .alwaysHidden) {
                     alwaysHiddenSection.toggle()
                 }
+            } else if
+                identifier == .iceIcon,
+                let alwaysHiddenSection = appState.menuBarManager.section(withName: .alwaysHidden),
+                alwaysHiddenSection.isEnabled
+            {
+                // The Ice icon drives the always-hidden section, leaving the
+                // hidden section untouched (it is driven by click/hover/scroll
+                // on empty menu bar space, its divider, or its hotkey).
+                alwaysHiddenSection.toggle()
             } else {
                 section?.toggle()
             }

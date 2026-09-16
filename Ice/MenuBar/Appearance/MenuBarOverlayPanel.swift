@@ -978,8 +978,15 @@ private final class MenuBarOverlayPanelContentView: NSView {
             DispatchQueue.main.async { [weak self] in
                 // Shared state first: the result survives even if this view
                 // is gone (panel recreated mid-scan).
-                Self.trailingWidthCache[display] = (width, Date())
                 Self.trailingWidthScanInFlight.remove(display)
+                if Self.isStripOccluded(display: display) {
+                    // A dropdown/panel is over the bar: the scan saw the panel,
+                    // not the icons. Drop it so neither the cache nor the settled
+                    // widths learn the occluded value; the pill holds its width.
+                    self?.needsDisplay = true
+                    return
+                }
+                Self.trailingWidthCache[display] = (width, Date())
                 guard let self else {
                     return
                 }
@@ -1004,6 +1011,35 @@ private final class MenuBarOverlayPanelContentView: NSView {
                     Self.predictiveTarget.removeValue(forKey: display)
                 }
             }
+        }
+    }
+
+    /// Whether a foreign window currently overlaps the menu bar strip.
+    ///
+    /// A dropdown/panel hanging over the bar corrupts AX width scans (probes
+    /// hit the panel instead of the icons) and would retract the background
+    /// mid-interaction. While occluded the pill may expand but its collapse is
+    /// frozen; collapse resumes once focus leaves (panel closed). Steady state
+    /// only ever shows the Menubar base and Ice's own overlay here, so both
+    /// are excluded.
+    private static func isStripOccluded(display: CGDirectDisplayID) -> Bool {
+        let bounds = CGDisplayBounds(display)
+        guard bounds.width > 0 else {
+            return false
+        }
+        guard let screen = NSScreen.screens.first(where: { $0.displayID == display }) else {
+            return false
+        }
+        let barHeight = screen.frame.maxY - screen.visibleFrame.maxY
+        guard barHeight > 0 else {
+            return false
+        }
+        let strip = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: barHeight)
+        let ownPID = NSRunningApplication.current.processIdentifier
+        return WindowInfo.getOnScreenWindows(excludeDesktopWindows: true).contains { window in
+            window.ownerPID != ownPID &&
+            !window.isWindowServerWindow &&
+            window.frame.intersects(strip)
         }
     }
 
@@ -1214,11 +1250,13 @@ private final class MenuBarOverlayPanelContentView: NSView {
                     if Self.trailingWidthCache[display] != nil {
                         Self.trailingWidthCache[display]?.date = Date()
                     }
-                } else {
+                } else if !Self.isStripOccluded(display: display) {
                     Self.trailingBurstUntil[display] = Date().addingTimeInterval(1.0)
                     self.needsDisplay = true
                     self.refreshTrailingStatusWidth(for: display, force: true)
                 }
+                // Else: a dropdown/panel is over the bar — hold the pill until
+                // it leaves instead of rescanning toward the occluded width.
             }
         }
     }

@@ -4,6 +4,7 @@
 //
 
 import Cocoa
+import Combine
 
 /// A representation of a section in a menu bar.
 @MainActor
@@ -38,6 +39,9 @@ final class MenuBarSection {
 
     /// The control item that manages the section.
     let controlItem: ControlItem
+
+    /// Storage for internal observers.
+    private var cancellables = Set<AnyCancellable>()
 
     /// The shared app state.
     private weak var appState: AppState?
@@ -123,6 +127,26 @@ final class MenuBarSection {
         self.name = name
         self.controlItem = controlItem
         self.appState = appState
+        // Restore the visibility the user last chose; a fresh install
+        // defaults to hidden, matching the previous launch behavior.
+        controlItem.state = Defaults.bool(forKey: shownDefaultsKey) ? .showItems : .hideItems
+        controlItem.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self else {
+                    return
+                }
+                Defaults.set(state == .showItems, forKey: shownDefaultsKey)
+                // The Ice icon mirrors the always-hidden section; repaint
+                // its arrow when that section changes.
+                if
+                    name == .alwaysHidden,
+                    let visibleSection = self.appState?.menuBarManager.section(withName: .visible)
+                {
+                    visibleSection.controlItem.updateStatusItem(with: visibleSection.controlItem.state)
+                }
+            }
+            .store(in: &cancellables)
     }
 
     /// Creates a section with the given name and app state.
@@ -136,6 +160,15 @@ final class MenuBarSection {
             ControlItem(identifier: .alwaysHidden, appState: appState)
         }
         self.init(name: name, controlItem: controlItem, appState: appState)
+    }
+
+    /// The UserDefaults key that stores whether the section is shown.
+    private var shownDefaultsKey: Defaults.Key {
+        switch name {
+        case .visible: .showVisibleSection
+        case .hidden: .showHiddenSection
+        case .alwaysHidden: .showAlwaysHiddenSection
+        }
     }
 
     /// Shows the section.

@@ -3,6 +3,7 @@
 //  Ice
 //
 
+import AXSwift
 import Cocoa
 import Combine
 
@@ -209,6 +210,13 @@ extension EventManager {
             // Short delay helps the toggle action feel more natural.
             try? await Task.sleep(for: .milliseconds(50))
 
+            // Re-verify at fire time: the click may have hit an icon whose AX
+            // state lagged at mouse-down, or opened a menu since. Never toggle
+            // into an interaction.
+            guard !isMenuOpenGlobally(), isMouseInsideEmptyMenuBarSpace else {
+                return
+            }
+
             if NSEvent.modifierFlags == .control {
                 handleShowRightClickMenu()
             } else if
@@ -272,11 +280,31 @@ extension EventManager {
                 return
             }
 
+            // A tracked menu means the user is mid-interaction (e.g. picking
+            // from a dropdown) — never collapse into it. This also spares a
+            // window-list fetch while menus are open.
+            guard !isMenuOpenGlobally() else {
+                return
+            }
+
             // Get the window that the user has clicked into.
+            guard let mouseLocation = MouseCursor.locationCoreGraphics else {
+                return
+            }
+            let windowsBelowCursor = WindowInfo.getOnScreenWindows(excludeDesktopWindows: false)
+                .filter({ $0.layer < CGWindowLevelForKey(.cursorWindow) })
+
+            // A dropdown/panel hanging from the menu bar: interacting with it
+            // must not collapse the sections — only its closing (a click
+            // elsewhere) may. Checked before the title filter because panels
+            // often have no window title. Regular apps can own status items too.
+            if let topmost = windowsBelowCursor.first(where: { $0.frame.contains(mouseLocation) }),
+               isMenuBarDropdownWindow(topmost) {
+                return
+            }
+
             guard
-                let mouseLocation = MouseCursor.locationCoreGraphics,
-                let windowUnderMouse = WindowInfo.getOnScreenWindows(excludeDesktopWindows: false)
-                    .filter({ $0.layer < CGWindowLevelForKey(.cursorWindow) })
+                let windowUnderMouse = windowsBelowCursor
                     .first(where: { $0.frame.contains(mouseLocation) && $0.title?.isEmpty == false }),
                 let owningApplication = windowUnderMouse.owningApplication
             else {
@@ -573,8 +601,86 @@ extension EventManager {
         else {
             return false
         }
+        if isMouseInsideOwnControlItem {
+            return true
+        }
         let menuBarItems = MenuBarItem.getMenuBarItems(on: screen.displayID, onScreenOnly: true, activeSpaceOnly: true)
-        return menuBarItems.contains { $0.frame.contains(mouseLocation) }
+        if menuBarItems.contains(where: { $0.frame.contains(mouseLocation) }) {
+            return true
+        }
+        // On macOS 27 the window server vends no per-item windows, so the
+        // lookup above is always empty and clicks on third-party icons look
+        // like clicks on empty space — collapsing the sections mid-interaction
+        // (e.g. just as the icon's dropdown opens). Fall back to a single AX
+        // hit test, using the same trailing-cluster roles as the overlay.
+        if let appState, appState.itemManager.isItemDiscoveryUnavailable {
+            return isMouseInsideAXMenuBarItem(at: mouseLocation)
+        }
+        return false
+    }
+
+    /// AX hit test for a menu bar item at the given CoreGraphics point.
+    ///
+    /// `AXGroup` covers the MenuBarAgent/ControlCenter cluster;
+    /// `AXMenuBarItem`/`AXButton`/`AXImage` cover third-party extras, excluding
+    /// the frontmost app's own menus. An open menu over the bar (`AXMenu` /
+    /// `AXMenuItem`) also counts: the user is interacting with it, so the spot
+    /// is not empty space. Anything without AX permission, or any other role
+    /// (bare `AXMenuBar` background, wallpaper, …), reads as empty.
+    private func isMouseInsideAXMenuBarItem(at point: CGPoint) -> Bool {
+        guard
+            let element = try? systemWideElement.elementAtPosition(Float(point.x), Float(point.y)),
+            let role: String = try? element.attribute("AXRole")
+        else {
+            return false
+        }
+        switch role {
+        case "AXGroup", "AXMenu", "AXMenuItem":
+            return true
+        case "AXMenuBarItem", "AXButton", "AXImage":
+            guard let pid: pid_t = try? element.pid() else {
+                // A status-looking element we can't attribute is more likely
+                // an icon than empty space, and a missed toggle beats a
+                // mid-interaction collapse.
+                return true
+            }
+            return pid != NSWorkspace.shared.frontmostApplication?.processIdentifier
+        default:
+            return false
+        }
+    }
+
+    /// A Boolean value that indicates whether the mouse pointer is within
+    /// the bounds of one of Ice's own section control items.
+    ///
+    /// On macOS 27 the window server no longer vends per-item windows, so the
+    /// lookup above is always empty and every click looks like a click on empty
+    /// menu bar space — including clicks on Ice's own controls, which then
+    /// toggle twice (once from the control itself, once from the delayed
+    /// empty-space handler) and land wherever the timing race leaves them.
+    /// Ice's own control windows always exist, so check those directly. The Ice
+    /// icon always counts; section dividers only count when actually drawn as
+    /// chevrons (shown with dividers enabled) — an expanded hiding spacer is
+    /// blank space and must stay clickable-as-empty.
+    private var isMouseInsideOwnControlItem: Bool {
+        guard
+            let appState,
+            let mouseLocation = MouseCursor.locationAppKit
+        else {
+            return false
+        }
+        return appState.menuBarManager.sections.contains { section in
+            let controlItem = section.controlItem
+            if controlItem.isSectionDivider {
+                guard controlItem.state == .showItems, controlItem.isVisible else {
+                    return false
+                }
+            }
+            guard let window = controlItem.window else {
+                return false
+            }
+            return window.frame.contains(mouseLocation)
+        }
     }
 
     /// A Boolean value that indicates whether the mouse pointer is within
@@ -630,6 +736,47 @@ extension EventManager {
             return false
         }
         return iceIconFrame.contains(mouseLocation)
+    }
+
+    /// Whether the user is currently interacting with an open menu, globally.
+    ///
+    /// Standard menus take keyboard focus while tracking, so a focused menu
+    /// element (or one nested inside a menu/popover) means a dropdown is open
+    /// somewhere — even below the menu bar, where geometry checks can't see
+    /// it. Non-activating custom panels don't move focus and are covered by
+    /// the window-geometry spare instead. Without AX permission this reads
+    /// false, preserving the old behavior.
+    private func isMenuOpenGlobally() -> Bool {
+        let focused: UIElement? = (try? systemWideElement.attribute("AXFocusedUIElement")) ?? nil
+        var current = focused
+        var depth = 0
+        while let element = current, depth < 6 {
+            if let role: String = try? element.attribute("AXRole"),
+               role == "AXMenu" || role == "AXMenuItem" || role == "AXPopover" {
+                return true
+            }
+            current = (try? element.attribute("AXParent")) ?? nil
+            depth += 1
+        }
+        return false
+    }
+
+    /// Whether the given window looks like a dropdown/panel hanging from the
+    /// menu bar: a smallish window near the bar's bottom edge.
+    ///
+    /// Standard menus hang just below the bar; custom panels may start a bit
+    /// lower. Anything clearly larger or lower is treated as a regular window.
+    /// A false spare only keeps the sections open until the next outside
+    /// click, while a false hide collapses them mid-interaction.
+    private func isMenuBarDropdownWindow(_ window: WindowInfo) -> Bool {
+        guard let screen = bestScreen else {
+            return false
+        }
+        let bounds = CGDisplayBounds(screen.displayID)
+        let barHeight = screen.frame.maxY - screen.visibleFrame.maxY
+        let barBottom = bounds.minY + barHeight
+        let frame = window.frame
+        return frame.minY <= barBottom + 120 && frame.height <= 500 && frame.width <= 700
     }
 }
 
