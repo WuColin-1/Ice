@@ -11,6 +11,13 @@ fi
 echo "==> swiftlint --strict"
 swiftlint --strict
 
+echo "==> xcodebuild -version (CI builds with Xcode 26.6 on macos-26)"
+xcodebuild -version
+XCODE_MAJOR=$(xcodebuild -version | head -1 | awk '{print $2}' | cut -d. -f1)
+if [ "${XCODE_MAJOR:-0}" -lt 26 ]; then
+  echo "warning: Xcode $XCODE_MAJOR < 26 links the legacy appearance; CI uses Xcode 26.6 (Liquid Glass SDK)"
+fi
+
 echo "==> xcodebuild Release (same flags as release.yml)"
 xcodebuild -project Ice.xcodeproj -scheme Ice -configuration Release \
   -destination 'platform=macOS,arch=arm64' \

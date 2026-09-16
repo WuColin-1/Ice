@@ -20,6 +20,31 @@ DMG_NAME="$APP_NAME.dmg"
 DESTINATION="platform=macOS,arch=arm64"
 # Ad-hoc sign: repo pins team K2ATHQPJDP which you don't have cert for
 SIGN_ARGS='CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM='
+# Parity with CI (release.yml injects these from the tag): honor exported
+# MARKETING_VERSION / CURRENT_PROJECT_VERSION so About shows the same numbers,
+# otherwise fall back to the values baked into the Xcode project.
+VERSION_ARGS=""
+if [ -n "${MARKETING_VERSION:-}" ]; then VERSION_ARGS="$VERSION_ARGS MARKETING_VERSION=$MARKETING_VERSION"; fi
+if [ -n "${CURRENT_PROJECT_VERSION:-}" ]; then VERSION_ARGS="$VERSION_ARGS CURRENT_PROJECT_VERSION=$CURRENT_PROJECT_VERSION"; fi
+
+# Optional version override: ./build.sh v0.11.15
+# Injects MARKETING_VERSION into the build (same mechanism as CI),
+# so Settings → About shows the given version instead of the
+# hardcoded one in project.pbxproj.
+VERSION_ARGS=()
+if [ $# -ge 1 ]; then
+    VERSION="${1#v}"
+    if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo -e "${RED}Version '$1' must look like vX.Y.Z (e.g. ./build.sh v0.11.15)${NC}"
+        exit 1
+    fi
+    # Mirror CI (1117 + run number); locally there is no run number,
+    # so use the commit count to keep the build number increasing.
+    BUILD_NUMBER=$((1117 + $(git rev-list --count HEAD)))
+    echo -e "${YELLOW}Version override: $VERSION ($BUILD_NUMBER)${NC}"
+    echo ""
+    VERSION_ARGS=(MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER")
+fi
 
 echo -e "${YELLOW}========================================${NC}"
 echo -e "${YELLOW}   Ice Build Script${NC}"
@@ -38,6 +63,7 @@ xcodebuild -project "$PROJECT_DIR/$APP_NAME.xcodeproj" \
     -configuration Release \
     -destination "$DESTINATION" \
     $SIGN_ARGS \
+    "${VERSION_ARGS[@]}" \
     clean build
 
 if [ $? -ne 0 ]; then
@@ -53,6 +79,7 @@ BUILD_DIR=$(xcodebuild -project "$PROJECT_DIR/$APP_NAME.xcodeproj" \
     -scheme "$APP_NAME" \
     -configuration Release \
     -destination "$DESTINATION" \
+    "${VERSION_ARGS[@]}" \
     -showBuildSettings 2>/dev/null | sed -n 's/^ *BUILT_PRODUCTS_DIR *= *//p' | head -1)
 
 APP_PATH="$BUILD_DIR/$APP_NAME.app"
