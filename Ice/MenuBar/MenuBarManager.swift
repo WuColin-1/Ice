@@ -37,9 +37,6 @@ final class MenuBarManager: ObservableObject {
     /// The panel that contains the Ice Bar interface.
     let iceBarPanel: IceBarPanel
 
-    /// The panel that contains the menu bar search interface.
-    let searchPanel: MenuBarSearchPanel
-
     /// A Boolean value that indicates whether the manager can update its stored
     /// information for the menu bar's average color.
     private var canUpdateAverageColorInfo: Bool {
@@ -49,7 +46,6 @@ final class MenuBarManager: ObservableObject {
     /// Initializes a new menu bar manager instance.
     init(appState: AppState) {
         self.iceBarPanel = IceBarPanel(appState: appState)
-        self.searchPanel = MenuBarSearchPanel(appState: appState)
         self.appState = appState
     }
 

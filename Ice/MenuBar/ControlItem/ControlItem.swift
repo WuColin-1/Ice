@@ -463,23 +463,6 @@ final class ControlItem {
 
         menu.addItem(.separator())
 
-        let searchItem = NSMenuItem(
-            title: "Search Menu Bar Items",
-            action: #selector(showSearchPanel),
-            keyEquivalent: ""
-        )
-        searchItem.target = self
-        if
-            let hotkey = hotkey(withAction: .searchMenuBarItems),
-            let keyCombination = hotkey.keyCombination
-        {
-            searchItem.keyEquivalent = keyCombination.key.keyEquivalent
-            searchItem.keyEquivalentModifierMask = keyCombination.modifiers.nsEventFlags
-        }
-        menu.addItem(searchItem)
-
-        menu.addItem(.separator())
-
         // Add menu items to toggle the hidden and always-hidden sections.
         let sectionNames: [MenuBarSection.Name] = [.hidden, .alwaysHidden]
         for name in sectionNames {
@@ -546,19 +529,6 @@ final class ControlItem {
     /// Toggles the menu bar section associated with the given menu item.
     @objc private func toggleMenuBarSection(for menuItem: NSMenuItem) {
         Self.sectionStorage.value(for: menuItem)?.toggle()
-    }
-
-    /// Opens the menu bar search panel.
-    @objc private func showSearchPanel() {
-        guard
-            let appState,
-            let screen = MenuBarSearchPanel.defaultScreen
-        else {
-            return
-        }
-        Task {
-            await appState.menuBarManager.searchPanel.show(on: screen)
-        }
     }
 
     /// Opens the settings window and checks for app updates.

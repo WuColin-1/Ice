@@ -63,7 +63,7 @@ final class MenuBarItemImageCache: ObservableObject {
                 guard let self else {
                     return
                 }
-                // ponytail: updateCache() gates on Ice Bar/search/settings visibility
+                // ponytail: updateCache() gates on Ice Bar/settings visibility
                 // first; only then does it pay for the ScreenCapture permission scan.
                 Task.detached {
                     await self.updateCache()
@@ -228,9 +228,8 @@ final class MenuBarItemImageCache: ObservableObject {
         }
 
         let isIceBarPresented = await appState.navigationState.isIceBarPresented
-        let isSearchPresented = await appState.navigationState.isSearchPresented
 
-        if !isIceBarPresented && !isSearchPresented {
+        if !isIceBarPresented {
             guard await appState.navigationState.isAppFrontmost else {
                 logSkippingCache(reason: "Ice Bar not visible, app not frontmost")
                 return
@@ -270,11 +269,10 @@ final class MenuBarItemImageCache: ObservableObject {
         }
 
         let isIceBarPresented = await appState.navigationState.isIceBarPresented
-        let isSearchPresented = await appState.navigationState.isSearchPresented
         let isSettingsPresented = await appState.navigationState.isSettingsPresented
 
         var sectionsNeedingDisplay = [MenuBarSection.Name]()
-        if isSettingsPresented || isSearchPresented {
+        if isSettingsPresented {
             sectionsNeedingDisplay = MenuBarSection.Name.allCases
         } else if
             isIceBarPresented,

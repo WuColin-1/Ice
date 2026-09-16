@@ -42,11 +42,11 @@ extension MenuBarAppearanceConfigurationV2 {
         lightModeConfiguration: .defaultConfiguration,
         darkModeConfiguration: .defaultConfiguration,
         staticConfiguration: .defaultConfiguration,
-        shapeKind: .none,
+        shapeKind: .split,
         fullShapeInfo: .default,
         splitShapeInfo: .default,
         isInset: true,
-        isDynamic: false
+        isDynamic: true
     )
 }
 
@@ -113,9 +113,9 @@ extension MenuBarAppearancePartialConfiguration {
         hasBorder: false,
         borderColor: .black,
         borderWidth: 1,
-        tintOpacity: 1,
-        blurAmount: 0,
-        tintKind: .none,
+        tintOpacity: 0.3,
+        blurAmount: 0.7,
+        tintKind: .solid,
         tintColor: .black,
         tintGradient: .defaultMenuBarTint
     )
