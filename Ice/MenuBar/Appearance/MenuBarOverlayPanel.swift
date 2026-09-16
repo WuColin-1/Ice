@@ -407,7 +407,11 @@ private final class MenuBarOverlayPanelContentView: NSView {
     private static var trailingWidthsLoaded = false
 
     /// UserDefaults key for persisted trailing widths.
-    private static let trailingWidthsDefaultsKey = "Ice.TrailingWidths.v1"
+    ///
+    /// Bumped to v2: v1 learnings captured while dividers were misordered
+    /// (or before the AH default change) predict a stale pill that trails
+    /// the icons by a beat. Relearn from the current arrangement instead.
+    private static let trailingWidthsDefaultsKey = "Ice.TrailingWidths.v2"
 
     /// Loads persisted trailing widths once per launch.
     ///
