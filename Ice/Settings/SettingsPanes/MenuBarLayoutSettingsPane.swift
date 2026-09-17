@@ -136,7 +136,7 @@ struct MenuBarLayoutSettingsPane: View {
             } else if let icon = item.appIcon {
                 Image(nsImage: icon)
                     .resizable()
-                    .aspectRatio(contentMode: .fit)
+                    .scaledToFit()
                     .frame(width: 40, height: 34)
             } else {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
