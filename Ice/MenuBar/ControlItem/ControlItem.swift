@@ -298,6 +298,16 @@ final class ControlItem {
                 }
                 .store(in: &c)
 
+            appState.settingsManager.generalSettingsManager.$reverseIceIcon
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in
+                    guard let self else {
+                        return
+                    }
+                    updateStatusItem(with: state)
+                }
+                .store(in: &c)
+
             appState.settingsManager.generalSettingsManager.$useIceBar
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] useIceBar in
@@ -383,6 +393,9 @@ final class ControlItem {
             // Enable the cell, as it may have been previously disabled.
             button.cell?.isEnabled = true
             let icon = appState.settingsManager.generalSettingsManager.iceIcon
+            let reversed = appState.settingsManager.generalSettingsManager.reverseIceIcon
+            let hiddenImage = reversed ? icon.visible : icon.hidden
+            let visibleImage = reversed ? icon.hidden : icon.visible
             // Closed points right like a collapsed disclosure; open points
             // left toward the revealed items, matching the section dividers.
             // The arrow mirrors the always-hidden section while it is enabled;
@@ -393,7 +406,7 @@ final class ControlItem {
             } else {
                 state == .showItems
             }
-            button.image = showsOpenArrow ? icon.hidden.nsImage(for: appState) : icon.visible.nsImage(for: appState)
+            button.image = showsOpenArrow ? hiddenImage.nsImage(for: appState) : visibleImage.nsImage(for: appState)
             if
                 case .custom = icon.name,
                 let originalImage = button.image

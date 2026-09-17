@@ -93,7 +93,8 @@ struct GeneralSettingsPane: View {
         Label {
             Text(imageSet.name.rawValue)
         } icon: {
-            if let nsImage = imageSet.hidden.nsImage(for: appState) {
+            let image = manager.reverseIceIcon ? imageSet.hidden : imageSet.visible
+            if let nsImage = image.nsImage(for: appState) {
                 switch imageSet.name {
                 case .custom:
                     Image(size: CGSize(width: 18, height: 18)) { context in
@@ -165,6 +166,9 @@ struct GeneralSettingsPane: View {
                     isPresentingError = true
                 }
             }
+
+            Toggle("Reverse Ice icon", isOn: manager.bindings.reverseIceIcon)
+                .annotation("Point the arrow the opposite way when hidden")
 
             if case .custom = manager.iceIcon.name {
                 Toggle("Apply system theme to icon", isOn: manager.bindings.customIceIconIsTemplate)

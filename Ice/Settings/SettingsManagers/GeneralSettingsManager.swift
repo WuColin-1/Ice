@@ -16,6 +16,11 @@ final class GeneralSettingsManager: ObservableObject {
     /// for when items are visible or hidden.
     @Published var iceIcon: ControlItemImageSet = .defaultIceIcon
 
+    /// A Boolean value that indicates whether the Ice icon's
+    /// hidden and visible images should be swapped, so the
+    /// arrow points the opposite way when hidden.
+    @Published var reverseIceIcon = false
+
     /// The last user-selected custom Ice icon.
     @Published var lastCustomIceIcon: ControlItemImageSet?
 
@@ -82,6 +87,7 @@ final class GeneralSettingsManager: ObservableObject {
 
     private func loadInitialState() {
         Defaults.ifPresent(key: .showIceIcon, assign: &showIceIcon)
+        Defaults.ifPresent(key: .reverseIceIcon, assign: &reverseIceIcon)
         Defaults.ifPresent(key: .customIceIconIsTemplate, assign: &customIceIconIsTemplate)
         Defaults.ifPresent(key: .useIceBar, assign: &useIceBar)
         Defaults.ifPresent(key: .showOnClick, assign: &showOnClick)
@@ -146,6 +152,13 @@ final class GeneralSettingsManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { isTemplate in
                 Defaults.set(isTemplate, forKey: .customIceIconIsTemplate)
+            }
+            .store(in: &c)
+
+        $reverseIceIcon
+            .receive(on: DispatchQueue.main)
+            .sink { reverseIceIcon in
+                Defaults.set(reverseIceIcon, forKey: .reverseIceIcon)
             }
             .store(in: &c)
 

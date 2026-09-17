@@ -142,6 +142,7 @@ extension Defaults {
 
         case showIceIcon = "ShowIceIcon"
         case iceIcon = "IceIcon"
+        case reverseIceIcon = "ReverseIceIcon"
         case customIceIconIsTemplate = "CustomIceIconIsTemplate"
         case useIceBar = "UseIceBar"
         case showOnClick = "ShowOnClick"
