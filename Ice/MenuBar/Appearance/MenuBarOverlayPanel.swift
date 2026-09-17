@@ -413,6 +413,21 @@ private final class MenuBarOverlayPanelContentView: NSView {
     /// the icons by a beat. Relearn from the current arrangement instead.
     private static let trailingWidthsDefaultsKey = "Ice.TrailingWidths.v2"
 
+    /// Displays for which the split-shape auxiliary-area fallback fired.
+    ///
+    /// Logged once per display: the draw path runs on every redisplay while
+    /// a measurement stays unavailable, so an unguarded log would spam.
+    private static var splitFallbackLogged = Set<CGDirectDisplayID>()
+
+    /// Logs the split-shape auxiliary-area fallback once per display.
+    private static func logSplitFallbackOnce(for display: CGDirectDisplayID, side: String) {
+        guard !splitFallbackLogged.contains(display) else {
+            return
+        }
+        splitFallbackLogged.insert(display)
+        Logger.overlayPanel.debug("Split \(side) measurement unknown — using auxiliary-area fallback on display \(display)")
+    }
+
     /// Loads persisted trailing widths once per launch.
     ///
     /// Stored as `"<displayID>.concealed|revealed|cache": Double`. Cached
@@ -778,21 +793,35 @@ private final class MenuBarOverlayPanelContentView: NSView {
             }
         }
         let leadingPathBounds: CGRect = {
+            if let width = overlayPanel?.applicationMenuFrame?.width, width > 0 {
+                var maxX = width
+                if shouldInset {
+                    maxX += 10
+                    if info.leading.leadingEndCap == .square {
+                        maxX += appearanceManager.menuBarInsetAmount
+                    }
+                } else {
+                    maxX += 20
+                }
+                return CGRect(x: rect.minX, y: rect.minY, width: maxX, height: rect.height)
+            }
+            // ponytail: AX app-menu frame unknown (probe miss). On notch screens
+            // the system reserves the left auxiliary area for the app menu, so
+            // bind the pill to it instead of dropping it — a lone trailing pill
+            // reads as a "missing border" bug.
             guard
-                var maxX = overlayPanel?.applicationMenuFrame?.width,
-                maxX > 0
+                screen.hasNotch,
+                let leftArea = screen.auxiliaryTopLeftArea
             else {
                 return .zero
             }
-            if shouldInset {
-                maxX += 10
-                if info.leading.leadingEndCap == .square {
-                    maxX += appearanceManager.menuBarInsetAmount
-                }
-            } else {
-                maxX += 20
+            Self.logSplitFallbackOnce(for: screen.displayID, side: "leading")
+            let pad: CGFloat = shouldInset ? 10 : 20
+            let width = max(0, leftArea.maxX - screen.frame.minX - rect.minX + pad)
+            guard width > 0 else {
+                return .zero
             }
-            return CGRect(x: rect.minX, y: rect.minY, width: maxX, height: rect.height)
+            return CGRect(x: rect.minX, y: rect.minY, width: width, height: rect.height)
         }()
         let trailingPathBounds: CGRect = {
             let items = MenuBarItem.getMenuBarItems(on: screen.displayID, onScreenOnly: true, activeSpaceOnly: false)
@@ -806,10 +835,34 @@ private final class MenuBarOverlayPanelContentView: NSView {
                     width += item.frame.width
                 }
             }
-            guard totalWidth > 0 else {
+            if totalWidth > 0 {
+                var position = rect.maxX - totalWidth
+                if shouldInset {
+                    position += 4
+                    if info.trailing.trailingEndCap == .square {
+                        position -= appearanceManager.menuBarInsetAmount
+                    }
+                } else {
+                    position -= 7
+                }
+                guard position < rect.maxX else {
+                    return .zero
+                }
+                return CGRect(x: position, y: rect.minY, width: rect.maxX - position, height: rect.height)
+            }
+            // ponytail: CGS is empty on macOS 27+ and the AX rescan has no width
+            // yet (roles/frames vary by OS, scan window capped). On notch screens
+            // the system reserves the right auxiliary area for status items, so
+            // bind the pill to it instead of dropping it — a slightly wide pill
+            // with border beats a missing one.
+            guard
+                screen.hasNotch,
+                let rightArea = screen.auxiliaryTopRightArea
+            else {
                 return .zero
             }
-            var position = rect.maxX - totalWidth
+            Self.logSplitFallbackOnce(for: screen.displayID, side: "trailing")
+            var position = rightArea.minX - screen.frame.minX
             if shouldInset {
                 position += 4
                 if info.trailing.trailingEndCap == .square {
@@ -818,7 +871,11 @@ private final class MenuBarOverlayPanelContentView: NSView {
             } else {
                 position -= 7
             }
-            return CGRect(x: position, y: rect.minY, width: rect.maxX - position, height: rect.height)
+            let clamped = min(max(position, rect.minX), rect.maxX)
+            guard clamped < rect.maxX else {
+                return .zero
+            }
+            return CGRect(x: clamped, y: rect.minY, width: rect.maxX - clamped, height: rect.height)
         }()
 
         let hasLeading = leadingPathBounds != .zero
