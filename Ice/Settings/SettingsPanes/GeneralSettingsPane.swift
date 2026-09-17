@@ -188,7 +188,13 @@ struct GeneralSettingsPane: View {
     @ViewBuilder
     private var useIceBar: some View {
         Toggle("Use Ice Bar", isOn: manager.bindings.useIceBar)
-            .annotation("Show hidden menu bar items in a separate bar below the menu bar")
+            .annotation {
+                if appState.itemManager.isItemDiscoveryUnavailable {
+                    Text("This feature is under development and will be released soon")
+                } else {
+                    Text("Show hidden menu bar items in a separate bar below the menu bar")
+                }
+            }
     }
 
     @ViewBuilder
